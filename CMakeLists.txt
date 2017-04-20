@@ -1,0 +1,78 @@
+cmake_minimum_required(VERSION 2.8.3)
+project(box2d_sim_env)
+
+## Find catkin macros and libraries
+## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
+## is used, also find other catkin packages
+find_package(catkin REQUIRED
+        COMPONENTS
+        cmake_modules
+        box2d_catkin
+        sim_env
+        )
+## System dependencies are found with CMake's conventions
+find_package(Eigen 3.3 REQUIRED)
+#find_package(yaml-cpp REQUIRED)
+
+## Uncomment this if the package has a setup.py. This macro ensures
+## modules and global scripts declared therein get installed
+## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
+# catkin_python_setup()
+
+###################################
+## catkin specific configuration ##
+###################################
+## The catkin_package macro generates cmake config files for your package
+## Declare things to be passed to dependent projects
+## INCLUDE_DIRS: uncomment this if you package contains header files
+## LIBRARIES: libraries you create in this project that dependent projects also need
+## CATKIN_DEPENDS: catkin_packages dependent projects also need
+## DEPENDS: system dependencies of this project that dependent projects also need
+catkin_package(
+        INCLUDE_DIRS include
+        LIBRARIES box2d_sim_env
+        CATKIN_DEPENDS box2d_catkin sim_env
+        DEPENDS Eigen yaml-cpp
+)
+
+###########
+## Build ##
+###########
+
+set(CMAKE_CXX_STANDARD 11)
+add_definitions(-std=c++11)
+
+set(SOURCE_FILES
+        src/sim_env/Box2DWorld.cpp)
+
+## Specify additional locations of header files
+## Your package locations should be listed before other locations
+ include_directories(include ${Eigen_INCLUDE_DIRS} ${catkin_INCLUDE_DIRS})
+
+## Declare a C++ library
+ add_library(box2d_sim_env
+   ${SOURCE_FILES}
+ )
+
+## Add cmake target dependencies of the library
+## as an example, code may need to be generated before libraries
+## either from message generation or dynamic reconfigure
+# add_dependencies(box2d_sim_env ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+## Add cmake target dependencies of the executable
+## same as for the library above
+# add_dependencies(box2d_sim_env_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+## Specify libraries to link a library or executable target against
+ target_link_libraries(box2d_sim_env
+   ${catkin_LIBRARIES} yaml-cpp
+ )
+
+## Declare a C++ executable
+add_executable(box2d_sim_env_manual_test src/test_main.cpp)
+
+target_link_libraries(box2d_sim_env_manual_test
+        box2d_sim_env
+        ${catkin_LIBRARIES}
+        yaml-cpp
+        )
