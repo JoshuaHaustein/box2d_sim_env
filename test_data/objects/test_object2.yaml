@@ -1,0 +1,27 @@
+name: test_object
+links:
+  - name: test_object_link
+    geometry:
+      - [0.0, 0.0, 4.0, 0.0, 4.0, 1.0, 0.0, 1.0]
+    mass: 0.1
+    trans_friction: 1.0
+    rot_friction: 1.2
+    contact_friction: 1.5
+    restitution: 1.0
+  - name: test_object_link_2
+    geometry:
+      - [3.0, 0.0, 7.0, 0.0, 7.0, 1.0, 3.0, 1.0]
+    mass: 0.1
+    trans_friction: 1.0
+    rot_friction: 1.2
+    contact_friction: 1.5
+    restitution: 1.0
+joints:
+  - name: object_joint
+    link_a: test_object_link
+    link_b: test_object_link_2
+    axis: [3.5, 0.5]
+    limits: [-1.57, 1.57]
+    max_torque: 0.2
+    joint_type: revolute
+    actuated: False

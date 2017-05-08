@@ -12,6 +12,7 @@ find_package(catkin REQUIRED
         )
 ## System dependencies are found with CMake's conventions
 find_package(Eigen 3.3 REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system filesystem)
 #find_package(yaml-cpp REQUIRED)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -47,7 +48,7 @@ set(SOURCE_FILES
 
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
- include_directories(include ${Eigen_INCLUDE_DIRS} ${catkin_INCLUDE_DIRS})
+ include_directories(include ${Eigen_INCLUDE_DIRS} ${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
 
 ## Declare a C++ library
  add_library(box2d_sim_env
@@ -74,5 +75,6 @@ add_executable(box2d_sim_env_manual_test src/test_main.cpp)
 target_link_libraries(box2d_sim_env_manual_test
         box2d_sim_env
         ${catkin_LIBRARIES}
+        ${Boost_LIBRARIES}
         yaml-cpp
         )

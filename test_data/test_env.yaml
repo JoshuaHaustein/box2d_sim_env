@@ -1,0 +1,24 @@
+scale: 1.0
+robots:
+  - name: my_robot
+    filename: robots/test_robot.yaml
+objects:
+  - name: obj1
+    filename: objects/test_object.yaml
+    static: False
+  - name: obj2
+    filename: objects/test_object2.yaml
+    static: True
+states:
+  - name: my_robot
+    state:
+      configuration: [1.0, 2.0, 3.0, 0.0, 0.0]
+      velocity: [0.0, 1.0, -1.0, 0.0, 0.0]
+  - name: obj1
+    state:
+      configuration: [0.9, 1.0, 22.0]
+      velocity: [0.0, 0.0, 0.0]
+  - name: obj2
+    state:
+      configuration: [2.9, 1.2, 12.0, 0.0]
+      velocity: [0.0, 0.0, -0.2, 0.0]
