@@ -33,6 +33,7 @@ namespace sim_env {
         std::string joint_type;
         float max_torque;
         bool actuated;
+        float axis_orientation;
     };
 
     struct Box2DObjectDescription {
@@ -82,18 +83,30 @@ namespace sim_env {
 
     void parseYAML(const std::string& filename, Box2DEnvironmentDescription& ed) {
         // First get the root path of our environment file, we might it to resolve relative paths.
+        sim_env::LoggerPtr logger = sim_env::DefaultLogger::getInstance();
         boost::filesystem::path root_path(filename);
         root_path = root_path.parent_path();
         // load file
         YAML::Node node = YAML::LoadFile(filename);
-        ed.scale = node["scale"].as<float>();
-        ed.world_bounds = node["world_bounds"].as<Eigen::Vector4f>();
+        if (node["scale"]) {
+            ed.scale = node["scale"].as<float>();
+        } else {
+            ed.scale = 1.0;
+            logger->logWarn("No scale specified. Using default scale (1.0).", "sim_env/Box2DIOUtils.h");
+        }
+        if (node["world_bounds"]) {
+            ed.world_bounds = node["world_bounds"].as<Eigen::Vector4f>();
+        } else {
+            ed.world_bounds << 0.0f, 0.0f, 0.0f, 0.0f;
+            logger->logWarn("No world bounds specified. Using default world bounds.", "sim_env/Box2DIOUtils.h");
+        }
         parseObjectDescriptions(node["robots"], root_path, ed.robots);
         parseObjectDescriptions(node["objects"], root_path, ed.objects);
         for (auto yaml_state : node["states"]) {
             std::string object_name = yaml_state["name"].as<std::string>();
             ed.states[object_name] = yaml_state["state"].as<Box2DStateDescription>();
         }
+        //TODO do some sanity checks, e.g. check that we have a state for each movable object
     }
 }
 
@@ -117,16 +130,23 @@ namespace YAML {
     template<>
     struct convert<sim_env::Box2DLinkDescription> {
         static Node encode(const sim_env::Box2DLinkDescription& ld) {
+            sim_env::LoggerPtr logger = sim_env::DefaultLogger::getInstance();
             Node node;
             node["name"] = ld.name;
             for (auto& polygon : ld.polygons) {
+                if (polygon.size() % 2 != 0) {
+                    logger->logErr("Invalid polygon encountered. A polygon must have an even number of floats.",
+                                   "sim_env/Box2DIOUtils.h");
+                    // TODO we should do a sanity check here, whether the geometry is counter clock wise
+                    continue;
+                }
                 node["geometry"].push_back(polygon);
             }
             node["mass"] = ld.mass;
             node["trans_friction"] = ld.trans_friction;
             node["rot_friction"] = ld.rot_friction;
             node["contact_friction"] = ld.contact_friction;
-            node["resitution"] = ld.restitution;
+            node["restitution"] = ld.restitution;
             return node;
         }
 
@@ -156,12 +176,18 @@ namespace YAML {
             node["limits"] = jd.limits;
             node["max_torque"] = jd.max_torque;
             node["actuated"] = jd.actuated;
+            node["joint_type"] = jd.joint_type;
+            node["axis_orientation"] = jd.axis_orientation;
             return node;
         }
 
         static bool decode(const Node& node, sim_env::Box2DJointDescription& ld) {
             // TODO see what the error messages here if elements are missing
             ld.name = node["name"].as<std::string>();
+            ld.joint_type = node["joint_type"].as<std::string>();
+            if (node["axis_orientation"]) {
+                ld.axis_orientation = node["axis_orientation"].as<float>();
+            }
             ld.link_a = node["link_a"].as<std::string>();
             ld.link_b = node["link_b"].as<std::string>();
             ld.axis = node["axis"].as<Eigen::Vector2f>();

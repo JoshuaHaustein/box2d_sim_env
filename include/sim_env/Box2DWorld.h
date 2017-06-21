@@ -20,28 +20,46 @@ namespace sim_env{
 
     class Box2DObject;
     typedef std::shared_ptr<Box2DObject> Box2DObjectPtr;
+    typedef std::weak_ptr<Box2DObject> Box2DObjectWeakPtr;
     typedef std::shared_ptr<const Box2DObject> Box2DObjectConstPtr;
+    typedef std::weak_ptr<const Box2DObject> Box2DObjectConstWeakPtr;
 
     class Box2DWorld;
     typedef std::shared_ptr<Box2DWorld> Box2DWorldPtr;
+    typedef std::weak_ptr<Box2DWorld> Box2DWorldWeakPtr;
     typedef std::shared_ptr<const Box2DWorld> Box2DWorldConstPtr;
+    typedef std::weak_ptr<const Box2DWorld> Box2DWorldConstWeakPtr;
 
     class Box2DRobot;
     typedef std::shared_ptr<Box2DRobot> Box2DRobotPtr;
+    typedef std::weak_ptr<Box2DRobot> Box2DRobotWeakPtr;
     typedef std::shared_ptr<const Box2DRobot> Box2DRobotConstPtr;
+    typedef std::weak_ptr<const Box2DRobot> Box2DRobotConstWeakPtr;
 
     class Box2DLink;
     typedef std::shared_ptr<Box2DLink> Box2DLinkPtr;
+    typedef std::weak_ptr<Box2DLink> Box2DLinkWeakPtr;
     typedef std::shared_ptr<const Box2DLink> Box2DLinkConstPtr;
+    typedef std::weak_ptr<const Box2DLink> Box2DLinkConstWeakPtr;
 
     class Box2DJoint;
     typedef std::shared_ptr<Box2DJoint> Box2DJointPtr;
+    typedef std::weak_ptr<Box2DJoint> Box2DJointWeakPtr;
     typedef std::shared_ptr<const Box2DJoint> Box2DJointConstPtr;
+    typedef std::weak_ptr<const Box2DJoint> Box2DJointConstWeakPtr;
 
+    /**
+     * Box2DLink - The box2d implementation of a robot/object link.
+     */
     class Box2DLink : public Link {
+        friend class Box2DWorld;
         friend class Box2DJoint;
+        friend class Box2DObject;
     public:
-        Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world, bool is_static);
+        /**
+         * A link can only be instantiated by an Box2DObject.
+         */
+        Box2DLink() = delete;
         Box2DLink(const Box2DLink& link) = delete;
         Box2DLink& operator=(const Box2DLink&) = delete;
         Box2DLink& operator=(Box2DLink&&) = delete;
@@ -53,31 +71,47 @@ namespace sim_env{
 
         std::string getName() const override;
 
-        void setName(const std::string &name) override;
-
         EntityType getType() const override;
 
-        Eigen::Transform getTransform() const override;
+        Eigen::Affine3f getTransform() const override;
 
         WorldPtr getWorld() const override;
 
         WorldConstPtr getConstWorld() const override;
 
+        Box2DWorldPtr getBox2DWorld() const;
+
     protected:
+        // the constructor is protected to ensure that links can only be created within objects.
+        Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world, bool is_static);
+        // for cleanup, we need destroy functions. these are called when the Box2DWorld is destroyed.
+        void destroy(const std::shared_ptr<b2World>& b2world);
+
+        void setName(const std::string &name) override;
         b2Body* getBody();
+        void registerChildJoint(Box2DJointPtr joint);
+        void registerParentJoint(Box2DJointPtr joint);
     private:
-        Box2DWorldPtr _world;
+        Box2DWorldWeakPtr _world;
         b2Body* _body;
         b2Joint* _friction_joint;
         std::string _name;
+        std::vector<Box2DJointWeakPtr> _child_joints;
+        std::vector<Box2DJointWeakPtr> _parent_joints;
+        bool _destroyed;
     };
 
+    /**
+     * Box2DJoint - This class implements robot/object joints in box2d.
+     */
     class Box2DJoint : public Joint {
+        friend class Box2DWorld;
+        friend class Box2DObject;
     public:
-        Box2DJoint(const Box2DJointDescription& joint_desc,
-                   Box2DLinkPtr link_a,
-                   Box2DLinkPtr link_b,
-                   Box2DWorldPtr world);
+        /**
+         * A Box2DJoint can only be instantiated by an object/robot.
+         */
+        Box2DJoint() = delete;
         Box2DJoint(const Box2DJoint& joint) = delete;
         Box2DJoint& operator=(const Box2DJoint& joint) = delete;
         Box2DJoint& operator=(Box2DJoint&&) = delete;
@@ -89,40 +123,58 @@ namespace sim_env{
         unsigned int getIndex() const override;
         JointType getJointType() const override;
         std::string getName() const override;
-        void setName(const std::string &name) override;
         EntityType getType() const override;
-        Eigen::Transform getTransform() const override;
+        Eigen::Affine3f getTransform() const override;
         WorldPtr getWorld() const override;
         WorldConstPtr getConstWorld() const override;
-
+        Box2DWorldPtr getBox2DWorld() const;
+    protected:
+        // ensure we can only create this from friend classes
+        Box2DJoint(const Box2DJointDescription& joint_desc,
+                   Box2DLinkPtr link_a,
+                   Box2DLinkPtr link_b,
+                   Box2DWorldPtr world);
+        // called when Box2DWorld is destroyed
+        void destroy(const std::shared_ptr<b2World>& b2world);
+        void setName(const std::string &name) override;
     private:
-        Box2DWorldPtr _world;
+        Box2DWorldWeakPtr _world;
         std::string _name;
-        Box2DLinkPtr _link_a;
-        Box2DLinkPtr _link_b;
+        Box2DLinkWeakPtr _link_a;
+        Box2DLinkWeakPtr _link_b;
         b2Joint* _joint;
         JointType _joint_type;
+        bool _destroyed;
 
     };
 
+    /**
+     * Box2DObject - This class implements an Object in box2d.
+     */
     class Box2DObject : public Object {
+        friend class Box2DWorld;
+        friend class Box2DRobot;
     public:
-        Box2DObject(const Box2DObjectDescription& obj_desc, Box2DWorldPtr world);
+        /**
+         * A Box2DObject can only be constructed by a Box2DWorld.
+         */
+        Box2DObject() = delete;
+        //TODO what about copy constructor?
         ~Box2DObject();
 
         virtual std::string getName() const override;
 
-        virtual void setName(const std::string &name) override;
-
         virtual EntityType getType() const override;
 
-        virtual Eigen::Transform getTransform() const override;
+        virtual Eigen::Affine3f getTransform() const override;
 
-        virtual void setTransform(const Eigen::Transform& tf) override;
+        virtual void setTransform(const Eigen::Affine3f& tf) override;
 
         virtual WorldPtr getWorld() const override;
 
         virtual WorldConstPtr getConstWorld() const override;
+
+        Box2DWorldPtr getBox2DWorld() const;
 
         virtual bool checkCollision(CollidableConstPtr other_object) const override;
 
@@ -134,46 +186,118 @@ namespace sim_env{
 
         virtual Eigen::VectorXi getDOFIndices() override;
 
-        virtual Eigen::VectorXd getDOFPositions(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        virtual Eigen::VectorXf getDOFPositions(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
-        virtual void setDOFPositions(const Eigen::VectorXd& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
+        virtual void setDOFPositions(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
 
-        virtual Eigen::VectorXd getDOFVelocities(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        virtual Eigen::VectorXf getDOFVelocities(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
-        virtual void setDOFVelocities(const Eigen::VectorXd& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
+        virtual void setDOFVelocities(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
 
         virtual bool isStatic() const override;
 
+        virtual void getLinks(std::vector<LinkPtr> links) override;
+        virtual void getLinks(std::vector<LinkConstPtr> links) const override;
+
+        virtual void getJoints(std::vector<JointPtr> joints) override;
+        virtual void getJoints(std::vector<JointConstPtr> joints) const override;
+
     protected:
+        // ensure only friend classes can construct this
+        Box2DObject(const Box2DObjectDescription& obj_desc, Box2DWorldPtr world);
+        // function for desctruction. called by Box2DWorld when it is destroyed.
+        void destroy(const std::shared_ptr<b2World>& b2world);
+        virtual void setName(const std::string &name) override;
     private:
         std::string _name;
-        Eigen::Affine3d _transform;
-        Box2DWorldPtr _world;
+        Eigen::Affine3f _transform;
+        Box2DWorldWeakPtr _world;
         Eigen::VectorXi _active_dof_indices;
-        std::map<std::string, Box2DLinkPtr> _links;
-        std::map<std::string, Box2DJointPtr> _joints;
+        std::map<std::string, Box2DLinkPtr> _links; // the object is responsible for the lifetime of its links
+        std::map<std::string, Box2DJointPtr> _joints; // the object is responsible for the lifetime of its links
         bool _is_static;
+        bool _destroyed;
 
     };
 
+    /**
+     * Box2DRobot - This class implements a Robot in box2d.
+     */
     class Box2DRobot : public Robot {
+        friend class Box2DWorld;
     public:
+        /**
+         * A Box2DRobot can only be instantiated by a Box2DWorld.
+         */
+        Box2DRobot() = delete;
+        ~Box2DRobot();
 
+        virtual std::string getName() const override;
+
+        void setTransform(const Eigen::Affine3f &tf) override;
+
+        void setActiveDOFs(const Eigen::VectorXi &indices) override;
+
+        Eigen::VectorXi getActiveDOFs() override;
+
+        Eigen::VectorXi getDOFIndices() override;
+
+        Eigen::VectorXf getDOFPositions(const Eigen::VectorXi &indices) const override;
+
+        void setDOFPositions(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) override;
+
+        Eigen::VectorXf getDOFVelocities(const Eigen::VectorXi &indices) const override;
+
+        void setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) override;
+
+        bool isStatic() const override;
+
+        bool checkCollision(CollidableConstPtr other) const override;
+
+        bool checkCollision(const std::vector<CollidableConstPtr> &others) const override;
+
+        EntityType getType() const override;
+
+        Eigen::Affine3f getTransform() const override;
+
+        WorldPtr getWorld() const override;
+
+        WorldConstPtr getConstWorld() const override;
+
+        virtual void getLinks(std::vector<LinkPtr> links) override;
+        virtual void getLinks(std::vector<LinkConstPtr> links) const override;
+
+        virtual void getJoints(std::vector<JointPtr> joints) override;
+        virtual void getJoints(std::vector<JointConstPtr> joints) const override;
+    protected:
+        // protected constructor to ensure construction is only done by friend classes
+        Box2DRobot(const Box2DObjectDescription &robot_desc, Box2DWorldPtr world);
+        // destruction is issued by Box2DWorld
+        void destroy(const std::shared_ptr<b2World>& b2world);
+        virtual void setName(const std::string &name) override;
+
+    private:
+        Box2DObjectPtr _robot_object;
+        bool _destroyed;
     };
 
-    class Box2DWorld : public World {
+    /**
+     * Box2DWorld - This class implements the World interface for box2d.
+     */
+    class Box2DWorld : public World, public std::enable_shared_from_this<Box2DWorld> {
         friend class Box2DLink; // these classes need access to the underlying Box2D world
         friend class Box2DJoint;
     public:
-        static const float GROUND_DEFAULT_MIN_X = -100.0f;
-        static const float GROUND_DEFAULT_MIN_Y = -100.0f;
-        static const float GROUND_DEFAULT_MAX_X = 100.0f;
-        static const float GROUND_DEFAULT_MAX_Y = 100.0f;
-        static const float GRAVITY = 9.81f;
+        static constexpr float GROUND_DEFAULT_MIN_X = -100.0f;
+        static constexpr float GROUND_DEFAULT_MIN_Y = -100.0f;
+        static constexpr float GROUND_DEFAULT_MAX_X = 100.0f;
+        static constexpr float GROUND_DEFAULT_MAX_Y = 100.0f;
+        static constexpr float GRAVITY = 9.81f;
         Box2DWorld();
-        Box2DWorld(const Box2DWorld& joint) = delete;
-        Box2DWorld& operator=(const Box2DWorld& joint) = delete;
+        Box2DWorld(const Box2DWorld& world) = delete;
+        Box2DWorld& operator=(const Box2DWorld& world) = delete;
         Box2DWorld& operator=(Box2DWorld&&) = delete;
+        // Destroys all its entities
         ~Box2DWorld(); // we can ignore the warning that we are hiding enable_shared_from_this' destructor
 
         void loadWorld(const std::string &path) override;
@@ -190,7 +314,7 @@ namespace sim_env{
 
         bool supportsPhysics() const override;
 
-        void setPhysicsTimeStep(double physics_step) override;
+        void setPhysicsTimeStep(float physics_step) override;
 
         void getPhysicsTimeStep() const override;
 

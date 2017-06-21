@@ -42,6 +42,7 @@ catkin_package(
 
 set(CMAKE_CXX_STANDARD 11)
 add_definitions(-std=c++11)
+add_definitions(-fext-numeric-literals)
 
 set(SOURCE_FILES
         src/sim_env/Box2DWorld.cpp)
@@ -70,7 +71,7 @@ set(SOURCE_FILES
  )
 
 ## Declare a C++ executable
-add_executable(box2d_sim_env_manual_test src/test_main.cpp)
+add_executable(box2d_sim_env_manual_test tests/test_manual.cpp)
 
 target_link_libraries(box2d_sim_env_manual_test
         box2d_sim_env
@@ -78,3 +79,14 @@ target_link_libraries(box2d_sim_env_manual_test
         ${Boost_LIBRARIES}
         yaml-cpp
         )
+
+# Define tests
+if(CATKIN_ENABLE_TESTING)
+    catkin_add_gtest(test_Box2DWorld tests/test_Box2DWorld.cpp)
+    target_link_libraries(test_Box2DWorld
+            box2d_sim_env
+            ${catkin_LIBRARIES}
+            ${Boost_LIBRARIES}
+            ${gtest_LIBRARIES}
+            yaml-cpp)
+endif(CATKIN_ENABLE_TESTING)
