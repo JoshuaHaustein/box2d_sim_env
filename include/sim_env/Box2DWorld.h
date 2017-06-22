@@ -198,9 +198,13 @@ namespace sim_env{
 
         virtual void getLinks(std::vector<LinkPtr> links) override;
         virtual void getLinks(std::vector<LinkConstPtr> links) const override;
+        virtual LinkPtr getLink(const std::string &link_name) override;
+        virtual LinkConstPtr getConstLink(const std::string &link_name) const override;
 
         virtual void getJoints(std::vector<JointPtr> joints) override;
         virtual void getJoints(std::vector<JointConstPtr> joints) const override;
+        virtual JointPtr getJoint(const std::string &joint_name) override;
+        virtual JointConstPtr getConstJoint(const std::string &joint_name) const override;
 
     protected:
         // ensure only friend classes can construct this
@@ -266,9 +270,14 @@ namespace sim_env{
 
         virtual void getLinks(std::vector<LinkPtr> links) override;
         virtual void getLinks(std::vector<LinkConstPtr> links) const override;
+        virtual LinkPtr getLink(const std::string &link_name) override;
+        virtual LinkConstPtr getConstLink(const std::string &link_name) const override;
 
         virtual void getJoints(std::vector<JointPtr> joints) override;
         virtual void getJoints(std::vector<JointConstPtr> joints) const override;
+        virtual JointPtr getJoint(const std::string &joint_name) override;
+        virtual JointConstPtr getConstJoint(const std::string &joint_name) const override;
+
     protected:
         // protected constructor to ensure construction is only done by friend classes
         Box2DRobot(const Box2DObjectDescription &robot_desc, Box2DWorldPtr world);

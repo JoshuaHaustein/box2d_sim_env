@@ -185,8 +185,7 @@ Box2DJoint::Box2DJoint(const Box2DJointDescription &joint_desc, Box2DLinkPtr lin
     switch (_joint_type) {
         // TODO this only works if the links are placed correctly
         // TODO it would be easiest if this was some kind of invariant, i.e. during construction all
-        // TODO links are placed at their desired position. Maybe by making the constructor protected?
-        // TODO and the object class a friend?
+        // TODO links are placed at their desired position.
         case JointType::Revolute: {
             b2RevoluteJointDef joint_def;
             b2Vec2 box2d_axis(world->getScale() * joint_desc.axis[0],
@@ -245,10 +244,13 @@ void Box2DJoint::setPosition(float v) {
         case JointType::Revolute: {
             b2RevoluteJoint* revolute_joint = static_cast<b2RevoluteJoint*>(_joint);
 //            revolute_joint->S();
+            //TODO we need to update the pose of the child link here manually
+            //TODO we then need to propagate the change through the kinematic chain
         }
         case JointType::Prismatic: {
             b2PrismaticJoint* prismatic_joint = static_cast<b2PrismaticJoint*>(_joint);
 //            prismatic_joint->GetJointTranslation();
+            //TODO same here, so probably best if this can be done at the end of this switch-case block
         }
     }
 }
@@ -307,6 +309,7 @@ Box2DWorldPtr Box2DJoint::getBox2DWorld() const {
 Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr world):_destroyed(false) {
     _name = obj_desc.name;
     _is_static = obj_desc.is_static;
+    _world = Box2DWorldWeakPtr(world);
     for (auto &link_desc : obj_desc.links) {
         Box2DLinkPtr link(new Box2DLink(link_desc, world, _is_static));
         _links[link->getName()] = link;
@@ -430,6 +433,20 @@ void Box2DObject::getLinks(std::vector<LinkConstPtr> links) const {
     }
 }
 
+LinkPtr Box2DObject::getLink(const std::string &link_name) {
+    if (_links.find(link_name) != _links.end()) {
+        return _links.at(link_name);
+    }
+    return LinkPtr(nullptr);
+}
+
+LinkConstPtr Box2DObject::getConstLink(const std::string &link_name) const {
+    if (_links.find(link_name) != _links.end()) {
+        return _links.at(link_name);
+    }
+    return LinkConstPtr(nullptr);
+}
+
 void Box2DObject::getJoints(std::vector<JointPtr> joints) {
     for (auto &iter : _joints) {
         joints.push_back(iter.second);
@@ -441,6 +458,21 @@ void Box2DObject::getJoints(std::vector<JointConstPtr> joints) const {
         joints.push_back(iter.second);
     }
 }
+
+JointPtr Box2DObject::getJoint(const std::string &joint_name) {
+    if (_joints.find(joint_name) != _joints.end()) {
+        return _joints.at(joint_name);
+    }
+    return JointPtr(nullptr);
+}
+
+JointConstPtr Box2DObject::getConstJoint(const std::string &joint_name) const {
+    if (_joints.find(joint_name) != _joints.end()) {
+        return _joints.at(joint_name);
+    }
+    return JointConstPtr(nullptr);
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DRobot members *///////////////////////
@@ -546,6 +578,21 @@ void Box2DRobot::getJoints(std::vector<JointConstPtr> joints) const {
     _robot_object->getJoints(joints);
 }
 
+LinkPtr Box2DRobot::getLink(const std::string &link_name) {
+    return _robot_object->getLink(link_name);
+}
+
+LinkConstPtr Box2DRobot::getConstLink(const std::string &link_name) const {
+    return _robot_object->getConstLink(link_name);
+}
+
+JointPtr Box2DRobot::getJoint(const std::string &joint_name) {
+    return _robot_object->getJoint(joint_name);
+}
+
+JointConstPtr Box2DRobot::getConstJoint(const std::string &joint_name) const {
+    return _robot_object->getConstJoint(joint_name);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DWorld members *///////////////////////
