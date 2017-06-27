@@ -11,6 +11,8 @@ find_package(catkin REQUIRED
         sim_env
         )
 ## System dependencies are found with CMake's conventions
+find_package(Qt4 COMPONENTS QtCore QtGui REQUIRED)
+include(${QT_USE_FILE})
 find_package(Eigen 3.3 REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 #find_package(yaml-cpp REQUIRED)
@@ -44,17 +46,32 @@ set(CMAKE_CXX_STANDARD 11)
 add_definitions(-std=c++11)
 add_definitions(-fext-numeric-literals)
 
+## Qt specific
+add_definitions(${QT_DEFINITIONS})
+
 set(SOURCE_FILES
-        src/sim_env/Box2DWorld.cpp)
+        src/sim_env/Box2DWorld.cpp
+        src/sim_env/Box2DWorldViewer.cpp)
+
+## Additional Qt specific things (in case we need it)
+# set (MOC_HEADERS ...)
+# set (UIS ...)
+# set (RESOURCES ...)
+# QT4_ADD_RESOURCES(RES_SOURCES ${RESOURCES})
+# QT4_WRAP_UI(UI_HEADERS ${UIS})
+# QT4_WRAP_CPP( MOC_SRCS ${MOC_HEADERS})
 
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
- include_directories(include ${Eigen_INCLUDE_DIRS} ${catkin_INCLUDE_DIRS} ${Boost_INCLUDE_DIRS})
+ include_directories(include
+         ${Eigen_INCLUDE_DIRS}
+         ${catkin_INCLUDE_DIRS}
+         ${Boost_INCLUDE_DIRS}
+         ${CMAKE_BINARY_DIR})
 
 ## Declare a C++ library
  add_library(box2d_sim_env
-   ${SOURCE_FILES}
- )
+   ${SOURCE_FILES})
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -67,7 +84,9 @@ set(SOURCE_FILES
 
 ## Specify libraries to link a library or executable target against
  target_link_libraries(box2d_sim_env
-   ${catkin_LIBRARIES} yaml-cpp
+        ${catkin_LIBRARIES}
+        yaml-cpp
+        ${QT_LIBRARIES}
  )
 
 ## Declare a C++ executable
@@ -78,6 +97,7 @@ target_link_libraries(box2d_sim_env_manual_test
         ${catkin_LIBRARIES}
         ${Boost_LIBRARIES}
         yaml-cpp
+        ${QT_LIBRARIES}
         )
 
 # Define tests

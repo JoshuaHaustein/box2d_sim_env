@@ -56,7 +56,7 @@ namespace sim_env {
         std::vector<Box2DObjectDescription> objects;
     };
 
-    void parseObjectDescriptions(const YAML::Node& node, const boost::filesystem::path& root_path,
+    static void parseObjectDescriptions(const YAML::Node& node, const boost::filesystem::path& root_path,
                                  std::vector<Box2DObjectDescription>& obj_descs) {
         // run over each object description
         for (auto yaml_entry : node) {
@@ -81,7 +81,7 @@ namespace sim_env {
         }
     }
 
-    void parseYAML(const std::string& filename, Box2DEnvironmentDescription& ed) {
+    static void parseYAML(const std::string& filename, Box2DEnvironmentDescription& ed) {
         // First get the root path of our environment file, we might it to resolve relative paths.
         sim_env::LoggerPtr logger = sim_env::DefaultLogger::getInstance();
         boost::filesystem::path root_path(filename);

@@ -8,7 +8,6 @@
 #include "Box2DIOUtils.h"
 #include <boost/filesystem/path.hpp>
 #include <yaml-cpp/yaml.h>
-#include <exception>
 
 // Forward declarations of Box2D stuff
 class b2World;
@@ -17,7 +16,6 @@ class b2Joint;
 class b2BodyDef;
 
 namespace sim_env{
-
     class Box2DObject;
     typedef std::shared_ptr<Box2DObject> Box2DObjectPtr;
     typedef std::weak_ptr<Box2DObject> Box2DObjectWeakPtr;
@@ -47,6 +45,18 @@ namespace sim_env{
     typedef std::weak_ptr<Box2DJoint> Box2DJointWeakPtr;
     typedef std::shared_ptr<const Box2DJoint> Box2DJointConstPtr;
     typedef std::weak_ptr<const Box2DJoint> Box2DJointConstWeakPtr;
+
+    class Box2DWorldViewer;
+    typedef std::shared_ptr<Box2DWorldViewer> Box2DWorldViewerPtr;
+    typedef std::shared_ptr<const Box2DWorldViewer> Box2DWorldViewerConstPtr;
+
+    namespace viewer {
+        class Box2DDrawingInterface;
+        typedef std::shared_ptr<Box2DDrawingInterface> Box2DDrawingInterfacePtr;
+        typedef std::shared_ptr<const Box2DDrawingInterface> Box2DDrawingInterfaceConstPtr;
+    }
+
+    typedef std::lock_guard<std::recursive_mutex> Box2DWorldLock;
 
     /**
      * Box2DLink - The box2d implementation of a robot/object link.
@@ -296,6 +306,7 @@ namespace sim_env{
     class Box2DWorld : public World, public std::enable_shared_from_this<Box2DWorld> {
         friend class Box2DLink; // these classes need access to the underlying Box2D world
         friend class Box2DJoint;
+        friend class Box2DObject;
     public:
         static constexpr float GROUND_DEFAULT_MIN_X = -100.0f;
         static constexpr float GROUND_DEFAULT_MIN_Y = -100.0f;
@@ -319,7 +330,7 @@ namespace sim_env{
 
         void getRobots(std::vector<RobotPtr> &robots) const override;
 
-        void stepPhysics(int steps) const override;
+        void stepPhysics(int steps) override;
 
         bool supportsPhysics() const override;
 
@@ -335,9 +346,13 @@ namespace sim_env{
         float getInverseScale() const;
 
         float getGravity() const;
+
+        void drawWorld(sim_env::viewer::Box2DDrawingInterfacePtr drawing_interface);
+
     protected:
         std::shared_ptr<b2World> getRawBox2DWorld();
         b2Body* getGroundBody();
+        std::recursive_mutex world_mutex;
     private:
         b2Body* _b2_ground_body;
         std::shared_ptr<b2World> _world;

@@ -3,10 +3,11 @@
 //
 #include <vector>
 #include <map>
+#include <exception>
 #include "sim_env/Box2DWorld.h"
-#include "sim_env/Box2DIOUtils.h"
-#include "Box2D/Box2D.h"
+#include "sim_env/Box2DWorldViewer.h"
 #include "sim_env/YamlUtils.h"
+#include "Box2D/Box2D.h"
 #include <boost/filesystem.hpp>
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point_xy.hpp>
@@ -17,10 +18,11 @@ using namespace sim_env;
 namespace bg = boost::geometry;
 
 ////////////////////////////////////////////////////////////////////////////////
-/////////////////////* Definition of Box2DLink members *//////////////////////
+/////////////////////* Definition of Box2DLink members *////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world, bool is_static):
     _destroyed(false) {
+    Box2DWorldLock lock(world->world_mutex);
     _name = link_desc.name;
     _world = world;
     // Create Box2D body
@@ -164,6 +166,7 @@ void Box2DLink::registerParentJoint(Box2DJointPtr joint) {
 
 Box2DJoint::Box2DJoint(const Box2DJointDescription &joint_desc, Box2DLinkPtr link_a, Box2DLinkPtr link_b,
                        Box2DWorldPtr world):_destroyed(false) {
+    Box2DWorldLock lock(world->world_mutex);
     _world = world;
     _name = joint_desc.name;
     _link_a = link_a;
@@ -240,6 +243,9 @@ float Box2DJoint::getPosition() const {
 }
 
 void Box2DJoint::setPosition(float v) {
+    auto world = getBox2DWorld();
+    Box2DWorldLock lock(world->world_mutex);
+    // TODO
     switch (_joint_type) {
         case JointType::Revolute: {
             b2RevoluteJoint* revolute_joint = static_cast<b2RevoluteJoint*>(_joint);
@@ -260,7 +266,9 @@ float Box2DJoint::getVelocity() const {
 }
 
 void Box2DJoint::setVelocity(float v) {
-
+    auto world = getBox2DWorld();
+    Box2DWorldLock lock(world->world_mutex);
+    // TODO
 }
 
 unsigned int Box2DJoint::getIndex() const {
@@ -358,7 +366,9 @@ Eigen::Affine3f Box2DObject::getTransform() const {
 }
 
 void Box2DObject::setTransform(const Eigen::Affine3f &tf) {
-
+    auto world = getBox2DWorld();
+    Box2DWorldLock lock(world->world_mutex);
+    // TODO
 }
 
 WorldPtr Box2DObject::getWorld() const {
@@ -386,7 +396,9 @@ bool Box2DObject::checkCollision(const std::vector<CollidableConstPtr> &object_l
 }
 
 void Box2DObject::setActiveDOFs(const Eigen::VectorXi &indices) {
-
+    auto world = getBox2DWorld();
+    Box2DWorldLock lock(world->world_mutex);
+    // TODO
 }
 
 Eigen::VectorXi Box2DObject::getActiveDOFs() {
@@ -402,7 +414,9 @@ Eigen::VectorXf Box2DObject::getDOFPositions(const Eigen::VectorXi &indices) con
 }
 
 void Box2DObject::setDOFPositions(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
-
+    auto world = getBox2DWorld();
+    Box2DWorldLock lock(world->world_mutex);
+    // TODO
 }
 
 Eigen::VectorXf Box2DObject::getDOFVelocities(const Eigen::VectorXi &indices) const {
@@ -410,7 +424,9 @@ Eigen::VectorXf Box2DObject::getDOFVelocities(const Eigen::VectorXi &indices) co
 }
 
 void Box2DObject::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
-
+    auto world = getBox2DWorld();
+    Box2DWorldLock lock(world->world_mutex);
+    // TODO
 }
 
 void Box2DObject::setName(const std::string &name) {
@@ -643,7 +659,8 @@ void Box2DWorld::getRobots(std::vector<RobotPtr> &robots) const {
     }
 }
 
-void Box2DWorld::stepPhysics(int steps) const {
+void Box2DWorld::stepPhysics(int steps) {
+    Box2DWorldLock lock(world_mutex);
     // TODO
 }
 
@@ -693,6 +710,7 @@ b2Body* Box2DWorld::getGroundBody() {
 
 ////////////////////////////// PRIVATE FUNCTIONS //////////////////////////////
 void Box2DWorld::eraseWorld() {
+    Box2DWorldLock lock(world_mutex);
     for (auto& robot_iter : _robots) {
         robot_iter.second->destroy(_world);
     }
@@ -749,6 +767,7 @@ void Box2DWorld::createGround(const Eigen::Vector4f &world_bounds) {
 }
 
 void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
+    Box2DWorldLock lock(world_mutex);
     _world.reset(new b2World(b2Vec2(0.0, 0.0)));
     _scale = env_desc.scale;
     // Get the dimension of the ground plane
@@ -780,6 +799,13 @@ void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
         object->setDOFPositions(state_desc.second.configuration);
         object->setDOFVelocities(state_desc.second.velocity);
     }
+}
+
+void Box2DWorld::drawWorld(viewer::Box2DDrawingInterfacePtr drawing_interface) {
+    Box2DWorldLock lock(world_mutex);
+    drawing_interface->setScale(getScale());
+    _world->SetDebugDraw(drawing_interface.get());
+    _world->DrawDebugData();
 }
 
 
