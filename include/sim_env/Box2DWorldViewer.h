@@ -7,11 +7,84 @@
 
 #include <Box2D/Common/b2Draw.h>
 #include <QtGui/QApplication>
-#include <QtGui/QWidget>
 #include <sim_env/Box2DWorld.h>
+#include <QtGui/QGraphicsView>
+#include <QtGui/QGraphicsItem>
 
 namespace sim_env {
     namespace viewer {
+
+        class Box2DObjectView : public QGraphicsItem {
+        public:
+            Box2DObjectView(Box2DObjectConstPtr object);
+            ~Box2DObjectView();
+
+            QRectF boundingRect() const;
+            void paint(QPainter* painter, const QStyleOptionGraphicsItem *option, QWidget *widget);
+
+        protected:
+            Box2DObjectConstWeakPtr _object;
+        };
+
+        class Box2DRobotView : public QGraphicsItem {
+        public:
+            Box2DRobotView(Box2DRobotConstPtr robot);
+            ~Box2DRobotView();
+
+            QRectF boundingRect() const;
+            void paint(QPainter* painter, const QStyleOptionGraphicsItem *option, QWidget *widget);
+        protected:
+            Box2DRobotConstWeakPtr _robot;
+        };
+
+        class Box2DLinkView : public QGraphicsItem {
+        public:
+            Box2DLinkView(Box2DLinkConstPtr link, QGraphicsItem* parent=0);
+            QRectF boundingRect() const;
+            void paint(QPainter* painter, const QStyleOptionGraphicsItem *option, QWidget *widget);
+
+        protected:
+            Box2DLinkConstWeakPtr _link;
+        private:
+            std::vector<QPolygonF> _polygons;
+            QRectF _bounding_rect;
+
+        };
+
+        class Box2DJointView : public QGraphicsItem {
+        public:
+            Box2DJointView(Box2DJointConstPtr joint, QGraphicsScene* scene, QGraphicsItem* parent=0);
+//            ~Box2DJointView();
+
+        protected:
+            Box2DJointConstWeakPtr _joint;
+        };
+
+        class Box2DWorldView : public QGraphicsView {
+        public:
+            Box2DWorldView(int width, int height, QWidget* parent = 0);
+            ~Box2DWorldView();
+
+            void setBox2DWorld(Box2DWorldConstPtr world);
+
+            /**
+             * Repopulates the visualized scene by recreating all child views based on the currently
+             * set Box2D world.
+             */
+            void repopulate();
+
+        protected:
+            void wheelEvent(QWheelEvent* event);
+            void scaleView(double scale_factor);
+
+            QGraphicsScene* _scene;
+            int _width;
+            int _height;
+            Box2DWorldConstWeakPtr _world;
+            std::vector<Box2DObjectView*> _object_views;
+            std::vector<Box2DRobotView*> _robot_views;
+
+        };
 
         struct Polygon {
             QVector<QPoint> vertices;
@@ -70,7 +143,6 @@ namespace sim_env {
             QSize _min_size;
             QSize _desired_size;
             float _arrow_length;
-
         };
     }
 
@@ -101,7 +173,7 @@ namespace sim_env {
     private:
         Box2DWorldWeakPtr _world;
         std::unique_ptr<QApplication> _app;
-        std::vector<std::shared_ptr<QWidget>> _widgets;
+        std::unique_ptr<viewer::Box2DWorldView> _world_view;
     };
 }
 

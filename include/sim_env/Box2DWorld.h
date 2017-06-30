@@ -91,16 +91,23 @@ namespace sim_env{
 
         Box2DWorldPtr getBox2DWorld() const;
 
+        void getGeometry(std::vector< std::vector<Eigen::Vector2f> >& geometry) const;
+
     protected:
         // the constructor is protected to ensure that links can only be created within objects.
         Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world, bool is_static);
         // for cleanup, we need destroy functions. these are called when the Box2DWorld is destroyed.
         void destroy(const std::shared_ptr<b2World>& b2world);
-
+        // set the name of this link
         void setName(const std::string &name) override;
+        // returns the underlying box2d body
         b2Body* getBody();
+        // registers a child joint
         void registerChildJoint(Box2DJointPtr joint);
+        // registers a parent joint
         void registerParentJoint(Box2DJointPtr joint);
+        // sets the transform of this link. Should not be called externally.
+        void setTransform(const Eigen::Affine3f& tf);
     private:
         Box2DWorldWeakPtr _world;
         b2Body* _body;
@@ -192,6 +199,8 @@ namespace sim_env{
 
         virtual void setActiveDOFs(const Eigen::VectorXi& indices) override;
 
+        virtual unsigned int getNumDOFs() const override;
+
         virtual Eigen::VectorXi getActiveDOFs() override;
 
         virtual Eigen::VectorXi getDOFIndices() override;
@@ -206,13 +215,14 @@ namespace sim_env{
 
         virtual bool isStatic() const override;
 
-        virtual void getLinks(std::vector<LinkPtr> links) override;
-        virtual void getLinks(std::vector<LinkConstPtr> links) const override;
+        virtual void getLinks(std::vector<LinkPtr>& links) override;
+        virtual void getLinks(std::vector<LinkConstPtr>& links) const override;
         virtual LinkPtr getLink(const std::string &link_name) override;
         virtual LinkConstPtr getConstLink(const std::string &link_name) const override;
+        virtual LinkPtr getBaseLink() override;
 
-        virtual void getJoints(std::vector<JointPtr> joints) override;
-        virtual void getJoints(std::vector<JointConstPtr> joints) const override;
+        virtual void getJoints(std::vector<JointPtr>& joints) override;
+        virtual void getJoints(std::vector<JointConstPtr>& joints) const override;
         virtual JointPtr getJoint(const std::string &joint_name) override;
         virtual JointConstPtr getConstJoint(const std::string &joint_name) const override;
 
@@ -227,7 +237,9 @@ namespace sim_env{
         Eigen::Affine3f _transform;
         Box2DWorldWeakPtr _world;
         Eigen::VectorXi _active_dof_indices;
+        unsigned int _num_dofs;
         std::map<std::string, Box2DLinkPtr> _links; // the object is responsible for the lifetime of its links
+        Box2DLinkPtr _base_link;
         std::map<std::string, Box2DJointPtr> _joints; // the object is responsible for the lifetime of its links
         bool _is_static;
         bool _destroyed;
@@ -251,6 +263,8 @@ namespace sim_env{
         void setTransform(const Eigen::Affine3f &tf) override;
 
         void setActiveDOFs(const Eigen::VectorXi &indices) override;
+
+        virtual unsigned int getNumDOFs() const override;
 
         Eigen::VectorXi getActiveDOFs() override;
 
@@ -278,13 +292,14 @@ namespace sim_env{
 
         WorldConstPtr getConstWorld() const override;
 
-        virtual void getLinks(std::vector<LinkPtr> links) override;
-        virtual void getLinks(std::vector<LinkConstPtr> links) const override;
+        virtual void getLinks(std::vector<LinkPtr>& links) override;
+        virtual void getLinks(std::vector<LinkConstPtr>& links) const override;
         virtual LinkPtr getLink(const std::string &link_name) override;
         virtual LinkConstPtr getConstLink(const std::string &link_name) const override;
+        virtual LinkPtr getBaseLink() override;
 
-        virtual void getJoints(std::vector<JointPtr> joints) override;
-        virtual void getJoints(std::vector<JointConstPtr> joints) const override;
+        virtual void getJoints(std::vector<JointPtr>& joints) override;
+        virtual void getJoints(std::vector<JointConstPtr>& joints) const override;
         virtual JointPtr getJoint(const std::string &joint_name) override;
         virtual JointConstPtr getConstJoint(const std::string &joint_name) const override;
 

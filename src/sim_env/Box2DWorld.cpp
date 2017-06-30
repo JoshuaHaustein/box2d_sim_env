@@ -159,6 +159,34 @@ void Box2DLink::registerParentJoint(Box2DJointPtr joint) {
 //    }
 }
 
+void Box2DLink::getGeometry(std::vector<std::vector<Eigen::Vector2f> > &geometry) const {
+    b2Fixture* fixture = _body->GetFixtureList();
+    while (fixture) {
+        b2Shape* shape = fixture->GetShape();
+        std::vector<Eigen::Vector2f> polygon;
+        if (shape->GetType() == b2Shape::Type::e_polygon) {
+            b2PolygonShape* polygon_shape = static_cast<b2PolygonShape*>(shape);
+            for (int32 v = 0; v < polygon_shape->GetVertexCount(); ++v) {
+                b2Vec2 point = polygon_shape->GetVertex(v);
+                Eigen::Vector2f eigen_point(point.x, point.y);
+                polygon.push_back(eigen_point);
+            }
+            geometry.push_back(polygon);
+        } else {
+            // TODO throw error
+        }
+        fixture = fixture->GetNext();
+    }
+}
+
+void Box2DLink::setTransform(const Eigen::Affine3f &tf) {
+    auto rotation_matrix = tf.rotation();
+    float theta = (float) acos(rotation_matrix(0, 0));
+    theta = rotation_matrix(1,0) > 0.0 ? theta : -theta;
+    float x = tf.translation()(0);
+    float y = tf.translation()(1);
+    _body->SetTransform(b2Vec2(x, y), theta);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DJoint members *///////////////////////
@@ -318,11 +346,14 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
     _name = obj_desc.name;
     _is_static = obj_desc.is_static;
     _world = Box2DWorldWeakPtr(world);
+    // first create links
     for (auto &link_desc : obj_desc.links) {
         Box2DLinkPtr link(new Box2DLink(link_desc, world, _is_static));
         _links[link->getName()] = link;
     }
+    _base_link = _links[obj_desc.base_link];
 
+    // next create joints
     for (auto &joint_desc : obj_desc.joints) {
         Box2DLinkPtr link_a = _links[joint_desc.link_a];
         Box2DLinkPtr link_b = _links[joint_desc.link_b];
@@ -330,7 +361,10 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
         link_a->registerChildJoint(joint);
         link_b->registerParentJoint(joint);
         _joints[joint->getName()] = joint;
+        // TODO we need to have an order of joints
     }
+    unsigned int base_dofs = _is_static ? 0 : 3;
+    _num_dofs = (unsigned int) (base_dofs + _joints.size());
 }
 
 Box2DObject::~Box2DObject() {
@@ -360,15 +394,13 @@ EntityType Box2DObject::getType() const {
 }
 
 Eigen::Affine3f Box2DObject::getTransform() const {
-    // TODO read position from Box2d -> x,y and rotation around z.
-    // TODO other components should be 0.0
-    return Eigen::Affine3f();
+    return _base_link->getTransform();
 }
 
 void Box2DObject::setTransform(const Eigen::Affine3f &tf) {
     auto world = getBox2DWorld();
     Box2DWorldLock lock(world->world_mutex);
-    // TODO
+    _base_link->setTransform(tf);
 }
 
 WorldPtr Box2DObject::getWorld() const {
@@ -398,18 +430,37 @@ bool Box2DObject::checkCollision(const std::vector<CollidableConstPtr> &object_l
 void Box2DObject::setActiveDOFs(const Eigen::VectorXi &indices) {
     auto world = getBox2DWorld();
     Box2DWorldLock lock(world->world_mutex);
-    // TODO
+    _active_dof_indices = indices;
 }
 
 Eigen::VectorXi Box2DObject::getActiveDOFs() {
-    return Eigen::VectorXi();
+    return _active_dof_indices;
 }
 
 Eigen::VectorXi Box2DObject::getDOFIndices() {
-    return Eigen::VectorXi();
+    Eigen::VectorXi dofs(_num_dofs);
+    for (unsigned int i = 0; i < _num_dofs; ++i) {
+        dofs[i] = i;
+    }
+    return dofs;
 }
 
 Eigen::VectorXf Box2DObject::getDOFPositions(const Eigen::VectorXi &indices) const {
+    Eigen::VectorXi dofs_to_retrieve = indices;
+    if (dofs_to_retrieve.size() == 0) {
+        dofs_to_retrieve = _active_dof_indices;
+    }
+    Eigen::VectorXf output(dofs_to_retrieve.size());
+    for (unsigned int i = 0; i < dofs_to_retrieve.size(); ++i) {
+        int dof = dofs_to_retrieve[i];
+        if (dof < 3) {
+            Eigen::Vector3f pose;
+            _base_link->getPose(pose);
+            output[i] = pose[dof];
+        } else {
+            // get joint value of joint dof
+        }
+    }
     return Eigen::VectorXf();
 }
 
@@ -437,13 +488,13 @@ bool Box2DObject::isStatic() const {
     return _is_static;
 }
 
-void Box2DObject::getLinks(std::vector<LinkPtr> links) {
+void Box2DObject::getLinks(std::vector<LinkPtr>& links) {
     for (auto &iter : _links) {
         links.push_back(iter.second);
     }
 }
 
-void Box2DObject::getLinks(std::vector<LinkConstPtr> links) const {
+void Box2DObject::getLinks(std::vector<LinkConstPtr>& links) const {
     for (auto &iter : _links) {
         links.push_back(iter.second);
     }
@@ -463,13 +514,13 @@ LinkConstPtr Box2DObject::getConstLink(const std::string &link_name) const {
     return LinkConstPtr(nullptr);
 }
 
-void Box2DObject::getJoints(std::vector<JointPtr> joints) {
+void Box2DObject::getJoints(std::vector<JointPtr>& joints) {
     for (auto &iter : _joints) {
         joints.push_back(iter.second);
     }
 }
 
-void Box2DObject::getJoints(std::vector<JointConstPtr> joints) const {
+void Box2DObject::getJoints(std::vector<JointConstPtr>& joints) const {
     for (auto &iter : _joints) {
         joints.push_back(iter.second);
     }
@@ -489,6 +540,14 @@ JointConstPtr Box2DObject::getConstJoint(const std::string &joint_name) const {
     return JointConstPtr(nullptr);
 }
 
+LinkPtr Box2DObject::getBaseLink() {
+    return _base_link;
+}
+
+unsigned int Box2DObject::getNumDOFs() const {
+    return _num_dofs;
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DRobot members *///////////////////////
@@ -496,6 +555,7 @@ JointConstPtr Box2DObject::getConstJoint(const std::string &joint_name) const {
 Box2DRobot::Box2DRobot(const Box2DObjectDescription &robot_desc, Box2DWorldPtr world):_destroyed(false) {
     // Up till now a robot is just a semantically special object. Rather than implementing
     // the same functionalities twice (for object and robot), we use composition here.
+    // Also we do not wanna have diamond inheritance
     _robot_object = Box2DObjectPtr(new Box2DObject(robot_desc, world));
 }
 
@@ -543,7 +603,7 @@ void Box2DRobot::setDOFPositions(const Eigen::VectorXf &values, const Eigen::Vec
 }
 
 Eigen::VectorXf Box2DRobot::getDOFVelocities(const Eigen::VectorXi &indices) const {
-    _robot_object->getDOFVelocities(indices);
+    return _robot_object->getDOFVelocities(indices);
 }
 
 void Box2DRobot::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
@@ -578,19 +638,19 @@ WorldConstPtr Box2DRobot::getConstWorld() const {
     return _robot_object->getConstWorld();
 }
 
-void Box2DRobot::getLinks(std::vector<LinkPtr> links) {
+void Box2DRobot::getLinks(std::vector<LinkPtr>& links) {
     _robot_object->getLinks(links);
 }
 
-void Box2DRobot::getLinks(std::vector<LinkConstPtr> links) const {
+void Box2DRobot::getLinks(std::vector<LinkConstPtr>& links) const {
     _robot_object->getLinks(links);
 }
 
-void Box2DRobot::getJoints(std::vector<JointPtr> joints) {
+void Box2DRobot::getJoints(std::vector<JointPtr>& joints) {
     _robot_object->getJoints(joints);
 }
 
-void Box2DRobot::getJoints(std::vector<JointConstPtr> joints) const {
+void Box2DRobot::getJoints(std::vector<JointConstPtr>& joints) const {
     _robot_object->getJoints(joints);
 }
 
@@ -608,6 +668,14 @@ JointPtr Box2DRobot::getJoint(const std::string &joint_name) {
 
 JointConstPtr Box2DRobot::getConstJoint(const std::string &joint_name) const {
     return _robot_object->getConstJoint(joint_name);
+}
+
+LinkPtr Box2DRobot::getBaseLink() {
+    return _robot_object->getBaseLink();
+}
+
+unsigned int Box2DRobot::getNumDOFs() const {
+    return _robot_object->getNumDOFs();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

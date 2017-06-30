@@ -8,6 +8,7 @@
 #include <QtGui/QPushButton>
 #include <QtGui/QPainter>
 #include <QWheelEvent>
+#include <memory>
 
 //////////////////////////////////////// Box2DDrawingInterface ////////////////////////////////////////
 sim_env::viewer::Box2DDrawingInterface::Box2DDrawingInterface(sim_env::Box2DWorldPtr world,
@@ -39,6 +40,7 @@ void sim_env::viewer::Box2DDrawingInterface::DrawSolidPolygon(const b2Vec2 *vert
     createPolygon(vertices, vertexCount, color, new_polygon);
     new_polygon.solid = false;
     _polygons.push_back(new_polygon);
+
 }
 
 void sim_env::viewer::Box2DDrawingInterface::DrawCircle(const b2Vec2 &center, float32 radius, const b2Color &color) {
@@ -205,6 +207,172 @@ void sim_env::viewer::Box2DDrawingInterface::createCircle(const b2Vec2 &center, 
     circle.radius = toScreenLength(radius);
 }
 
+//////////////////////////////////////// Box2DObjectView ////////////////////////////////////////
+sim_env::viewer::Box2DObjectView::Box2DObjectView(sim_env::Box2DObjectConstPtr object) {
+    _object = object;
+    std::vector<LinkConstPtr> links;
+    object->getLinks(links);
+    for (auto& link : links){
+        Box2DLinkConstPtr box2d_link = std::static_pointer_cast<const Box2DLink>(link);
+        Box2DLinkView* link_view = new Box2DLinkView(box2d_link, this);
+    }
+}
+
+sim_env::viewer::Box2DObjectView::~Box2DObjectView() {
+}
+
+QRectF sim_env::viewer::Box2DObjectView::boundingRect() const {
+    return this->childrenBoundingRect();
+}
+
+void sim_env::viewer::Box2DObjectView::paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
+                                             QWidget *widget) {
+    if (_object.expired()) {
+        auto logger = DefaultLogger::getInstance();
+        logger->logErr("The object to visualize is not available anymore.", "[sim_env::viewer::Box2DObjectView::paint]");
+        return;
+    }
+    Box2DObjectConstPtr object = _object.lock();
+    Eigen::Affine3f object_transform = object->getTransform();
+    QTransform my_transform(object_transform(0, 0), object_transform(0, 1),
+                            object_transform(1, 0), object_transform(1, 1),
+                            object_transform(0, 3), object_transform(1, 3));
+    setTransform(my_transform);
+}
+
+//////////////////////////////////////// Box2DRobotView ////////////////////////////////////////
+sim_env::viewer::Box2DRobotView::Box2DRobotView(sim_env::Box2DRobotConstPtr robot) {
+    _robot = robot;
+    std::vector<LinkConstPtr> links;
+    robot->getLinks(links);
+    for (auto& link : links) {
+        Box2DLinkConstPtr box2d_link = std::static_pointer_cast<const Box2DLink>(link);
+        Box2DLinkView* link_view = new Box2DLinkView(box2d_link, this);
+    }
+}
+
+sim_env::viewer::Box2DRobotView::~Box2DRobotView() {
+
+}
+
+QRectF sim_env::viewer::Box2DRobotView::boundingRect() const {
+    return this->childrenBoundingRect();
+}
+
+void sim_env::viewer::Box2DRobotView::paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
+                                            QWidget *widget) {
+    if (_robot.expired()) {
+        auto logger = DefaultLogger::getInstance();
+        logger->logErr("The robot to visualize is not available anymore.", "[sim_env::viewer::Box2DRobotView::paint]");
+        return;
+    }
+    Box2DRobotConstPtr robot = _robot.lock();
+    Eigen::Affine3f robot_transform = robot->getTransform();
+    QTransform my_transform(robot_transform(0, 0), robot_transform(0, 1),
+                            robot_transform(1, 0), robot_transform(1, 1),
+                            robot_transform(0, 3), robot_transform(1, 3));
+    setTransform(my_transform);
+}
+
+//////////////////////////////////////// Box2DLinkView ////////////////////////////////////////
+sim_env::viewer::Box2DLinkView::Box2DLinkView(sim_env::Box2DLinkConstPtr link,
+                                              QGraphicsItem* parent):QGraphicsItem(parent) {
+    _link = link;
+    Box2DWorldPtr world = link->getBox2DWorld();
+    float scaling_factor = world->getInverseScale();
+
+    std::vector<std::vector<Eigen::Vector2f> > geometry;
+    link->getGeometry(geometry);
+    for (auto& polygon : geometry) {
+        QPolygonF qt_polygon;
+        for (auto& point : polygon) {
+            qt_polygon.push_back(QPointF(scaling_factor * point[0], scaling_factor * point[1]));
+        }
+        _polygons.push_back(qt_polygon);
+        _bounding_rect |= qt_polygon.boundingRect();
+    }
+
+}
+
+QRectF sim_env::viewer::Box2DLinkView::boundingRect() const {
+    return _bounding_rect;
+}
+
+void sim_env::viewer::Box2DLinkView::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) {
+    auto logger = DefaultLogger::getInstance();
+    logger->logWarn("painting", "[sim_env::viewer::Box2DLinkView::paint]");
+    for (auto& polygon : _polygons) {
+        painter->drawPolygon(polygon);
+    }
+}
+
+//////////////////////////////////////// Box2DJointView ////////////////////////////////////////
+sim_env::viewer::Box2DJointView::Box2DJointView(sim_env::Box2DJointConstPtr joint, QGraphicsScene* scene,
+                                                QGraphicsItem* parent):QGraphicsItem(parent) {
+
+}
+
+//sim_env::viewer::Box2DJointView::~Box2DJointView() {
+//
+//}
+
+//////////////////////////////////////// Box2DWorldView ////////////////////////////////////////
+sim_env::viewer::Box2DWorldView::Box2DWorldView(int width, int height, QWidget *parent):QGraphicsView(parent) {
+    _scene = new QGraphicsScene();
+    _width = width;
+    _height = height;
+    setScene(_scene);
+}
+
+sim_env::viewer::Box2DWorldView::~Box2DWorldView() {
+}
+
+void sim_env::viewer::Box2DWorldView::setBox2DWorld(sim_env::Box2DWorldConstPtr world) {
+    _world = world;
+    repopulate();
+}
+
+void sim_env::viewer::Box2DWorldView::repopulate() {
+    if (_world.expired()) {
+        auto logger = DefaultLogger::getInstance();
+        logger->logWarn("Could not repopulate Box2DWorldView. Box2DWorld is missing.",
+                        "[sim_env::viewer::Box2DWorldView]");
+        return;
+    }
+    Box2DWorldConstPtr world = _world.lock();
+    // Create object views
+    std::vector<ObjectPtr> objects;
+    world->getObjects(objects, true);
+    for (auto& object : objects) {
+        Box2DObjectPtr box2d_object = std::static_pointer_cast<Box2DObject>(object);
+        Box2DObjectView* obj_view = new Box2DObjectView(box2d_object);
+        _scene->addItem(obj_view);
+        _object_views.push_back(obj_view);
+    }
+    // Create robot views
+    std::vector<RobotPtr> robots;
+    world->getRobots(robots);
+    for (auto& robot : robots) {
+        Box2DRobotPtr box2d_robot = std::static_pointer_cast<Box2DRobot>(robot);
+        Box2DRobotView* robot_view = new Box2DRobotView(box2d_robot);
+        _scene->addItem(robot_view);
+        _robot_views.push_back(robot_view);
+    }
+}
+
+void sim_env::viewer::Box2DWorldView::wheelEvent(QWheelEvent *event) {
+    scaleView(pow(2.0, -event->delta() / 240.0));
+}
+
+void sim_env::viewer::Box2DWorldView::scaleView(double scale_factor) {
+    // this is from a qt example
+    qreal factor = transform().scale(scale_factor, scale_factor).mapRect(QRectF(0, 0, 1, 1)).width();
+    // TODO this is the width of a unit cube when zoomed. See whether these numbers should be dependent on sth
+    if (factor < 0.07 || factor > 100) {
+        return;
+    }
+    scale(scale_factor, scale_factor);
+}
 
 //////////////////////////////////////// Box2DWorldViewer ////////////////////////////////////////
 sim_env::Box2DWorldViewer::Box2DWorldViewer(sim_env::Box2DWorldPtr world) {
@@ -217,10 +385,13 @@ sim_env::Box2DWorldViewer::~Box2DWorldViewer() {
 
 void sim_env::Box2DWorldViewer::show(int argc, char **argv) {
     _app = std::unique_ptr<QApplication>(new QApplication(argc, argv));
-    viewer::Box2DDrawingInterfacePtr render_area = std::make_shared<viewer::Box2DDrawingInterface>(_world.lock(),
-        750, 500);
-    _widgets.push_back(render_area);
-    render_area->show();
+    _world_view.reset(new viewer::Box2DWorldView(500, 500));
+    if (!_world.expired()) {
+        _world_view->setBox2DWorld(_world.lock());
+    } else {
+        // TODO error message
+    }
+    _world_view->show();
 }
 
 int sim_env::Box2DWorldViewer::run() {
@@ -244,3 +415,4 @@ void sim_env::Box2DWorldViewer::log(const std::string &msg, const std::string& p
     auto locked_world = _world.lock();
     locked_world->getLogger()->logInfo(msg, prefix);
 }
+

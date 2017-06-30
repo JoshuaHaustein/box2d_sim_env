@@ -38,6 +38,7 @@ namespace sim_env {
 
     struct Box2DObjectDescription {
         std::string name;
+        std::string base_link;
         std::vector<Box2DLinkDescription> links;
         std::vector<Box2DJointDescription> joints;
         bool is_static;
@@ -215,10 +216,12 @@ namespace YAML {
 
         static bool decode(const Node& node, sim_env::Box2DObjectDescription& od) {
             od.name = node["name"].as<std::string>();
+            // read in links
             const YAML::Node& links_node = node["links"];
             for (YAML::const_iterator iter = links_node.begin(); iter!= links_node.end(); iter++) {
                 od.links.push_back(iter->as<sim_env::Box2DLinkDescription>());
             }
+            // read in joints
             const YAML::Node& joints_node = node["joints"];
             for (YAML::const_iterator iter = joints_node.begin(); iter!= joints_node.end(); iter++) {
                 od.joints.push_back(iter->as<sim_env::Box2DJointDescription>());
@@ -227,6 +230,62 @@ namespace YAML {
                 od.is_static = true;
             } else {
                 od.is_static = false;
+            }
+            // finally verify that we have a sane kinematic structure
+            std::string base_link_name;
+            if (not verifyKinematicStructure(od, base_link_name)) {
+                auto logger = sim_env::DefaultLogger::getInstance();
+                std::stringstream msg_stream;
+                msg_stream << "The Kinematic structure of object " << od.name << " is invalid.";
+                logger->logErr(msg_stream.str(), "[Box2DIOUtils.h::convert<sim_env::Box2DObjectDescription>::decode]");
+                return false;
+            }
+            od.base_link = base_link_name;
+            return true;
+        }
+
+        static bool verifyKinematicStructure(const sim_env::Box2DObjectDescription& od, std::string& base_link_name) {
+            auto logger = sim_env::DefaultLogger::getInstance();
+            std::stringstream msg_stream;
+            std::string prefix("[Box2DIOUtils.h::convert<sim_env::Box2DObjectDescription>::verifyKinematicStructure]");
+            std::map<std::string, int> num_parents;
+            // initialize map with 0 for each link
+            for (auto& link_desc : od.links) {
+                num_parents[link_desc.name] = 0;
+            }
+            // test whether all links declared in the joint descriptions exist and count parents
+            for (auto& joint_desc : od.joints) {
+                auto iter_num_parents = num_parents.find(joint_desc.link_a);
+                if (iter_num_parents == num_parents.end()) {
+                    msg_stream << "Parent link \"" << joint_desc.link_a << "\"of joint \"" << joint_desc.name << "\" is unknown.";
+                    msg_stream << "The link needs to be defined in the links description.";
+                    logger->logErr(msg_stream.str(), prefix);
+                    return false;
+                }
+                iter_num_parents = num_parents.find(joint_desc.link_b);
+                if (iter_num_parents == num_parents.end()) {
+                    msg_stream << "Parent link \"" << joint_desc.link_b << "\"of joint \"" << joint_desc.name << "\" is unknown.";
+                    msg_stream << "The link needs to be defined in the links description.";
+                    logger->logErr(msg_stream.str(), prefix);
+                    return false;
+                }
+                iter_num_parents->second += 1;
+            }
+            // finally ensure that all links have at most one parent and there is exactly one link without a parent
+            bool b_found_root = false;
+            for (auto& link_desc : od.links) {
+                int link_num_parents = num_parents[link_desc.name];
+                if (link_num_parents == 0) {
+                    if (b_found_root) {
+                        msg_stream << "Found an additional link with no parent: \"" << link_desc.name << "\"";
+                        msg_stream << "Previous found root link is \"" <<  base_link_name << "\"";
+                        logger->logErr(msg_stream.str(), prefix);
+                        return false;
+                    } else {
+                        b_found_root = true;
+                        base_link_name = link_desc.name;
+                    }
+                }
             }
             return true;
         }

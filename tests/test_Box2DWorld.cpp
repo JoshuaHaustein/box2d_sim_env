@@ -27,7 +27,7 @@ sim_env::test::EntityTestData createBox2DObjectTestData() {
     test_data.world = std::make_shared<sim_env::Box2DWorld>();
     test_data.world->loadWorld(TEST_WORLD_PATH);
     test_data.entity_name = OBJECT_NAME_1;
-    test_data.initial_transform = Eigen::Translation(0.9, 1.0, 0.0) * Eigen::AngleAxisf(-1.0f, Eigen::Vector3f::UnitZ());
+    test_data.initial_transform = Eigen::Translation<float, 3>(0.9, 1.0, 0.0) * Eigen::AngleAxisf(-1.0f, Eigen::Vector3f::UnitZ());
     test_data.entity_type = sim_env::EntityType::Object;
     test_data.entity = test_data.world->getObject(OBJECT_NAME_1);
     return test_data;
@@ -38,7 +38,7 @@ sim_env::test::EntityTestData createBox2DRobotTestData() {
     test_data.world = std::make_shared<sim_env::Box2DWorld>();
     test_data.world->loadWorld(TEST_WORLD_PATH);
     test_data.entity_name = ROBOT_NAME;
-    test_data.initial_transform = Eigen::Translation(1.0, 2.0, 0.0) * Eigen::AngleAxisf(0.5, Eigen::Vector3f::UnitZ());
+    test_data.initial_transform = Eigen::Translation<float, 3>(1.0, 2.0, 0.0) * Eigen::AngleAxisf(0.5, Eigen::Vector3f::UnitZ());
     test_data.entity_type = sim_env::EntityType::Robot;
     test_data.entity = test_data.world->getRobot(ROBOT_NAME);
     return test_data;
@@ -49,7 +49,7 @@ sim_env::test::EntityTestData createBox2DLinkTestData() {
     test_data.world = std::make_shared<sim_env::Box2DWorld>();
     test_data.world->loadWorld(TEST_WORLD_PATH);
     test_data.entity_name = ROBOT_LINK_NAME;
-    test_data.initial_transform = Eigen::Translation(0.9, 1.0, 0.0) * Eigen::AngleAxisf(-1.0f, Eigen::Vector3f::UnitZ());
+    test_data.initial_transform = Eigen::Translation<float, 3>(0.9, 1.0, 0.0) * Eigen::AngleAxisf(-1.0f, Eigen::Vector3f::UnitZ());
     test_data.entity_type = sim_env::EntityType::Link;
     sim_env::RobotPtr robot = test_data.world->getRobot(ROBOT_NAME);
     test_data.entity = robot->getLink(ROBOT_LINK_NAME);
