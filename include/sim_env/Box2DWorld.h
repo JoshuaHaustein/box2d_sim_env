@@ -84,6 +84,7 @@ namespace sim_env{
         EntityType getType() const override;
 
         Eigen::Affine3f getTransform() const override;
+        Eigen::Vector3f getPose() const;
 
         WorldPtr getWorld() const override;
 
@@ -108,6 +109,8 @@ namespace sim_env{
         void registerParentJoint(Box2DJointPtr joint);
         // sets the transform of this link. Should not be called externally.
         void setTransform(const Eigen::Affine3f& tf);
+        // sets the pose of this link. This function essentially does the same as setTransform
+        void setPose(const Eigen::Vector3f& pose);
     private:
         Box2DWorldWeakPtr _world;
         b2Body* _body;
@@ -184,6 +187,7 @@ namespace sim_env{
         virtual EntityType getType() const override;
 
         virtual Eigen::Affine3f getTransform() const override;
+        Eigen::Vector3f getPose() const;
 
         virtual void setTransform(const Eigen::Affine3f& tf) override;
 
@@ -362,7 +366,6 @@ namespace sim_env{
 
         float getGravity() const;
 
-        void drawWorld(sim_env::viewer::Box2DDrawingInterfacePtr drawing_interface);
 
     protected:
         std::shared_ptr<b2World> getRawBox2DWorld();

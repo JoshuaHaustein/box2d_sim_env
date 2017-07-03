@@ -126,6 +126,15 @@ Eigen::Affine3f Box2DLink::getTransform() const {
     return transform;
 }
 
+Eigen::Vector3f Box2DLink::getPose() const {
+    b2Vec2 pos = _body->GetPosition();
+    Box2DWorldConstPtr world = getBox2DWorld();
+    float orientation = _body->GetAngle();
+    return Eigen::Vector3f(world->getInverseScale() * pos.x,
+                           world->getInverseScale() * pos.y,
+                           orientation);
+}
+
 Box2DWorldPtr Box2DLink::getBox2DWorld() const {
     if (_world.expired()) {
         throw std::logic_error("[Box2DLink::getBox2DWorld] Can not access Box2DWorld. A link should not exist without a world.");
@@ -180,12 +189,19 @@ void Box2DLink::getGeometry(std::vector<std::vector<Eigen::Vector2f> > &geometry
 }
 
 void Box2DLink::setTransform(const Eigen::Affine3f &tf) {
+    Box2DWorldPtr world = getBox2DWorld();
     auto rotation_matrix = tf.rotation();
     float theta = (float) acos(rotation_matrix(0, 0));
     theta = rotation_matrix(1,0) > 0.0 ? theta : -theta;
-    float x = tf.translation()(0);
-    float y = tf.translation()(1);
+    float x = world->getScale() * tf.translation()(0);
+    float y = world->getScale() * tf.translation()(1);
     _body->SetTransform(b2Vec2(x, y), theta);
+    // TODO we probably need to update children here
+}
+
+void Box2DLink::setPose(const Eigen::Vector3f& pose) {
+    Box2DWorldPtr world = getBox2DWorld();
+    _body->SetTransform(b2Vec2(world->getScale() * pose[0], world->getScale() * pose[1]), pose[2]);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -365,6 +381,8 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
     }
     unsigned int base_dofs = _is_static ? 0 : 3;
     _num_dofs = (unsigned int) (base_dofs + _joints.size());
+    // by default set all dofs active
+    _active_dof_indices = getDOFIndices();
 }
 
 Box2DObject::~Box2DObject() {
@@ -395,6 +413,10 @@ EntityType Box2DObject::getType() const {
 
 Eigen::Affine3f Box2DObject::getTransform() const {
     return _base_link->getTransform();
+}
+
+Eigen::Vector3f Box2DObject::getPose() const {
+    return _base_link->getPose();
 }
 
 void Box2DObject::setTransform(const Eigen::Affine3f &tf) {
@@ -453,12 +475,11 @@ Eigen::VectorXf Box2DObject::getDOFPositions(const Eigen::VectorXi &indices) con
     Eigen::VectorXf output(dofs_to_retrieve.size());
     for (unsigned int i = 0; i < dofs_to_retrieve.size(); ++i) {
         int dof = dofs_to_retrieve[i];
-        if (dof < 3) {
-            Eigen::Vector3f pose;
-            _base_link->getPose(pose);
+        if (dof < 3 && not _is_static) {
+            Eigen::Vector3f pose = _base_link->getPose();
             output[i] = pose[dof];
         } else {
-            // get joint value of joint dof
+            //TODO get joint value of joint dof
         }
     }
     return Eigen::VectorXf();
@@ -467,7 +488,21 @@ Eigen::VectorXf Box2DObject::getDOFPositions(const Eigen::VectorXi &indices) con
 void Box2DObject::setDOFPositions(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
     auto world = getBox2DWorld();
     Box2DWorldLock lock(world->world_mutex);
-    // TODO
+    Eigen::VectorXi dofs_to_set = indices;
+    if (dofs_to_set.size() == 0) {
+        dofs_to_set = _active_dof_indices;
+    }
+    for (unsigned int i = 0; i < dofs_to_set.size(); ++i) {
+        int dof = dofs_to_set[i];
+        if (dof < 3 && not _is_static) {
+            Eigen::Vector3f current_pose = _base_link->getPose();
+            current_pose[dof] = values[i];
+            _base_link->setPose(current_pose);
+        } else {
+            // TODO run over joints
+        }
+    }
+    //TODO
 }
 
 Eigen::VectorXf Box2DObject::getDOFVelocities(const Eigen::VectorXi &indices) const {
@@ -867,13 +902,6 @@ void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
         object->setDOFPositions(state_desc.second.configuration);
         object->setDOFVelocities(state_desc.second.velocity);
     }
-}
-
-void Box2DWorld::drawWorld(viewer::Box2DDrawingInterfacePtr drawing_interface) {
-    Box2DWorldLock lock(world_mutex);
-    drawing_interface->setScale(getScale());
-    _world->SetDebugDraw(drawing_interface.get());
-    _world->DrawDebugData();
 }
 
 

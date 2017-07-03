@@ -2,7 +2,7 @@ name: test_object
 links:
   - name: test_object_link
     geometry:
-      - [0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]
+      - [0.0, 0.0, 0.1, 0.0, 0.1, 0.1, 0.0, 0.1]
     mass: 0.1
     trans_friction: 1.0
     rot_friction: 1.2
