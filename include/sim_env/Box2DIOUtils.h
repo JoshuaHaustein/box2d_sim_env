@@ -186,9 +186,7 @@ namespace YAML {
             // TODO see what the error messages here if elements are missing
             ld.name = node["name"].as<std::string>();
             ld.joint_type = node["joint_type"].as<std::string>();
-            if (node["axis_orientation"]) {
-                ld.axis_orientation = node["axis_orientation"].as<float>();
-            }
+            ld.axis_orientation = node["axis_orientation"].as<float>();
             ld.link_a = node["link_a"].as<std::string>();
             ld.link_b = node["link_b"].as<std::string>();
             ld.axis = node["axis"].as<Eigen::Vector2f>();

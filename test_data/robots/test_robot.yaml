@@ -9,37 +9,72 @@ links:
     rot_friction: 0.1
     restitution: 1.0
     contact_friction: 0.1
-  - name: test_robot_finger_l
+  - name: test_robot_finger_l_1
     geometry:
-      - [0.05, 0.1, 0.15, 0.1, 0.15, 0.5, 0.05, 0.5]
+      - [-0.05, 0.0, 0.05, 0.0, 0.05, 0.4, -0.05, 0.4]
     mass: 0.3
     trans_friction: 0.1
     rot_friction: 0.1
     restitution: 1.0
     contact_friction: 1.5
-  - name: test_robot_finger_r
+  - name: test_robot_finger_l_2
     geometry:
-      - [0.65, 0.1, 0.75, 0.1, 0.75, 0.5, 0.65, 0.5]
+      - [-0.05, 0.0, 0.05, 0.0, 0.05, 0.2, -0.05, 0.2]
+    mass: 0.1
+    trans_friction: 0.1
+    rot_friction: 0.1
+    restitution: 1.0
+    contact_friction: 1.5
+  - name: test_robot_finger_r_1
+    geometry:
+      - [-0.05, 0.0, 0.05, 0.0, 0.05, 0.4, -0.05, 0.4]
     mass: 0.3
     trans_friction: 0.1
     rot_friction: 0.2
     restitution: 1.0
     contact_friction: 1.5
+  - name: test_robot_finger_r_2
+    geometry:
+      - [-0.05, 0.0, 0.05, 0.0, 0.05, 0.2, -0.05, 0.2]
+    mass: 0.1
+    trans_friction: 0.1
+    rot_friction: 0.1
+    restitution: 1.0
+    contact_friction: 1.5
 joints:
-  - name: finger_l_joint
+  - name: finger_l_joint_1
     link_a: test_robot_base
-    link_b: test_robot_finger_l
-    axis: [1.0, 1.0]
+    link_b: test_robot_finger_l_1
+    axis: [0.1, 0.1]
+    axis_orientation: 0.0
     limits: [-1.05, 1.05]
     joint_type: revolute
     max_torque: 1.0
     actuated: True
-  - name: finger_r_joint
+  - name: finger_l_joint_2
+    link_a: test_robot_finger_l_1
+    link_b: test_robot_finger_l_2
+    axis: [0.0, 0.35]
+    axis_orientation: 0.0
+    limits: [-1.05, 1.05]
+    joint_type: revolute
+    max_torque: 1.0
+    actuated: True
+  - name: finger_r_joint_1
     link_a: test_robot_base
-    link_b: test_robot_finger_r
-    axis: [7.0, 1.0]
+    link_b: test_robot_finger_r_1
+    axis: [0.7, 0.1]
+    axis_orientation: 0.0
     joint_type: revolute
     limits: [-1.05, 1.05]
     max_torque: 1.0
     actuated: True
-
+  - name: finger_r_joint_2
+    link_a: test_robot_finger_r_1
+    link_b: test_robot_finger_r_2
+    axis: [0.0, 0.35]
+    axis_orientation: 0.0
+    limits: [-1.05, 1.05]
+    joint_type: revolute
+    max_torque: 1.0
+    actuated: True

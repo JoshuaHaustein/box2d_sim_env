@@ -18,28 +18,29 @@ namespace sim_env {
         public:
             Box2DObjectView(Box2DObjectConstPtr object);
             ~Box2DObjectView();
-            QRectF boundingRect() const;
-            void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget);
+            QRectF boundingRect() const override;
+            void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
         protected:
             Box2DObjectConstWeakPtr _object;
         };
 
         class Box2DRobotView : public QGraphicsItem {
         public:
-            Box2DRobotView(Box2DRobotConstPtr robot);
+            Box2DRobotView(Box2DRobotPtr robot);
             ~Box2DRobotView();
-            QRectF boundingRect() const;
-            void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget);
+            QRectF boundingRect() const override;
+            void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
         protected:
-            Box2DRobotConstWeakPtr _robot;
+            void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
+            Box2DRobotWeakPtr _robot;
         };
 
         class Box2DLinkView : public QGraphicsItem {
         public:
             Box2DLinkView(Box2DLinkConstPtr link, QGraphicsItem *parent = 0);
-            QRectF boundingRect() const;
+            QRectF boundingRect() const override;
             void setColors(const QColor& fill_color, const QColor& border_color);
-            void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget);
+            void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
         protected:
             Box2DLinkConstWeakPtr _link;
         private:
@@ -57,6 +58,18 @@ namespace sim_env {
             Box2DJointConstWeakPtr _joint;
         };
 
+        class Box2DFrameView : public QGraphicsItem {
+        public:
+            Box2DFrameView(const Eigen::Affine3f& frame, float length, float width, QGraphicsItem* parent=0);
+            QRectF boundingRect() const override;
+            void paint(QPainter* painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
+        private:
+            QLineF _x_axis;
+            QLineF _y_axis;
+            QRectF _bounding_box;
+            float _width;
+        };
+
         class Box2DWorldView : public QGraphicsView {
         public:
             Box2DWorldView(int width, int height, QWidget *parent = 0);
@@ -67,8 +80,9 @@ namespace sim_env {
              * set Box2D world.
              */
             void repopulate();
+            void drawFrame(const Eigen::Affine3f &frame, float length=1.0f, float width=0.01f);
         protected:
-            void wheelEvent(QWheelEvent *event);
+            void wheelEvent(QWheelEvent *event) override;
             void scaleView(double scale_factor);
             // Variables
             QGraphicsScene *_scene;
@@ -98,15 +112,18 @@ namespace sim_env {
          * @param argv - pointer to array of c-style strings. These parameters are forwarded to QApplication.
          */
         void show(int argc = 0, char** argv = nullptr);
-        void drawFrame(const Eigen::Vector3f &transform) override;
+        void drawFrame(const Eigen::Affine3f &transform, float length=1.0f, float width=0.01f) override;
     protected:
         void log(const std::string& msg, const std::string& prefix,
                  Logger::LogLevel level=Logger::LogLevel::Info) const;
+        void deleteArgs();
 
     private:
         Box2DWorldWeakPtr _world;
         std::unique_ptr<QApplication> _app;
         std::unique_ptr<viewer::Box2DWorldView> _world_view;
+        int _argc;
+        char** _argv;
     };
 }
 

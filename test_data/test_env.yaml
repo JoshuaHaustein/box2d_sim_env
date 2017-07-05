@@ -12,8 +12,8 @@ objects:
 states:
   - name: my_robot
     state:
-      configuration: [1.0, 2.0, 0.5, 0.0, 0.0]
-      velocity: [0.0, 1.0, -1.0, 0.0, 0.0]
+      configuration: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      velocity: [0.0, 1.0, -1.0, 0.0, 0.0, 0.0, 0.0]
   - name: obj1
     state:
       configuration: [0.9, 1.0, -1.0]
