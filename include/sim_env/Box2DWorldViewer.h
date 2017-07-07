@@ -10,29 +10,42 @@
 #include <QtGui/QGraphicsView>
 #include <QtGui/QGraphicsItem>
 #include <QtGui/QColor>
+#include <QtGui/QGroupBox>
+
+class QLineEdit;
+class QSlider;
+class QFormLayout;
 
 namespace sim_env {
     namespace viewer {
+      class Box2DWorldView;
 
         class Box2DObjectView : public QGraphicsItem {
         public:
-            Box2DObjectView(Box2DObjectConstPtr object);
+            Box2DObjectView(Box2DObjectPtr object, Box2DWorldView* world_view);
             ~Box2DObjectView();
             QRectF boundingRect() const override;
             void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
         protected:
-            Box2DObjectConstWeakPtr _object;
+            void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
+            Box2DObjectWeakPtr _object;
+        private:
+            Box2DWorldView* _world_view; // raw pointer, but this view is destroyed
+                                        // when the parent view is desrtroyed
         };
 
         class Box2DRobotView : public QGraphicsItem {
         public:
-            Box2DRobotView(Box2DRobotPtr robot);
+            Box2DRobotView(Box2DRobotPtr robot, Box2DWorldView* world_view);
             ~Box2DRobotView();
             QRectF boundingRect() const override;
             void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
         protected:
             void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
             Box2DRobotWeakPtr _robot;
+        private:
+            Box2DWorldView* _world_view; // raw pointer, but this view is destroyed
+                                        // when the parent view is desrtroyed
         };
 
         class Box2DLinkView : public QGraphicsItem {
@@ -71,6 +84,9 @@ namespace sim_env {
         };
 
         class Box2DWorldView : public QGraphicsView {
+            Q_OBJECT
+            friend class Box2DRobotView;
+            friend class Box2DObjectView;
         public:
             Box2DWorldView(int width, int height, QWidget *parent = 0);
             ~Box2DWorldView();
@@ -81,16 +97,52 @@ namespace sim_env {
              */
             void repopulate();
             void drawFrame(const Eigen::Affine3f &frame, float length=1.0f, float width=0.01f);
+            virtual QSize sizeHint() const override;
+//            virtual QSize minimumSizeHint() const override;
+
+        public slots:
+            void refreshView();
+        signals:
+            void objectSelected(sim_env::ObjectWeakPtr object);
         protected:
+            void setSelectedObject(sim_env::ObjectWeakPtr object);
             void wheelEvent(QWheelEvent *event) override;
             void scaleView(double scale_factor);
             // Variables
             QGraphicsScene *_scene;
+            QTimer* _refresh_timer;
             int _width;
             int _height;
             Box2DWorldConstWeakPtr _world;
+            sim_env::ObjectWeakPtr _currently_selected_object;
             std::vector<Box2DObjectView *> _object_views;
             std::vector<Box2DRobotView *> _robot_views;
+        };
+
+        class Box2DObjectStateView : public QGroupBox {
+            Q_OBJECT
+        public:
+            Box2DObjectStateView(QWidget* parent=0);
+            virtual ~Box2DObjectStateView();
+
+        public slots:
+            void setCurrentObject(sim_env::ObjectWeakPtr object); // called by robot/object view on click
+            void setObjectState(); // called by 'set state' button
+            void sliderChange(int value); // called when a slider is changed
+        signals:
+            void valuesChanged();
+        private:
+            sim_env::ObjectWeakPtr _current_object;
+            std::vector<QLineEdit*> _object_pose_edits;
+            std::vector<QSlider*> _joint_position_sliders;
+            QFormLayout* _form_layout;
+            bool _ignore_input_signals;
+
+            void synchView();
+            void showValues();
+            int toTickValue(float value, float min, float max);
+            float fromTickValue(int tick, float min, float max);
+
         };
     }
 
@@ -121,9 +173,13 @@ namespace sim_env {
     private:
         Box2DWorldWeakPtr _world;
         std::unique_ptr<QApplication> _app;
-        std::unique_ptr<viewer::Box2DWorldView> _world_view;
+        std::unique_ptr<QWidget> _root_widget;
+        viewer::Box2DWorldView* _world_view;
         int _argc;
         char** _argv;
+
+        void createUI();
+        QWidget* createSideBar();
     };
 }
 

@@ -56,12 +56,12 @@ set(SOURCE_FILES
         src/sim_env/Box2DWorldViewer.cpp)
 
 ## Additional Qt specific things (in case we need it)
-# set (MOC_HEADERS ...)
+ set (MOC_HEADERS include/sim_env/Box2DWorldViewer.h)
 # set (UIS ...)
 # set (RESOURCES ...)
 # QT4_ADD_RESOURCES(RES_SOURCES ${RESOURCES})
 # QT4_WRAP_UI(UI_HEADERS ${UIS})
-# QT4_WRAP_CPP( MOC_SRCS ${MOC_HEADERS})
+ QT4_WRAP_CPP( MOC_SRCS ${MOC_HEADERS})
 
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
@@ -73,7 +73,9 @@ set(SOURCE_FILES
 
 ## Declare a C++ library
  add_library(box2d_sim_env
-   ${SOURCE_FILES})
+   ${SOURCE_FILES}
+   ${MOC_SRCS}
+ )
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries

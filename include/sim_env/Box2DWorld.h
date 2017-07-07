@@ -124,7 +124,7 @@ namespace sim_env{
         */
         void setPose(const Eigen::Vector3f& pose, bool update_children=true, bool joint_override=false);
         // sets the velocity (translational x,y and rotational) of this link. Should not be called externally.
-        void setVelocityVector(const Eigen::Vector3f velocity, bool relative=false);
+        void setVelocityVector(const Eigen::Vector3f& velocity, bool relative=false);
     private:
         Box2DWorldWeakPtr _world;
         b2Body* _body;
@@ -134,6 +134,14 @@ namespace sim_env{
         std::vector<Box2DJointWeakPtr> _child_joints;
         std::vector<Box2DJointWeakPtr> _parent_joints;
         bool _destroyed;
+
+        /**
+         * Recursively propagates a velocity change through a kinematic chain.
+         * @param lin_vel linear velocity change in global frame (scaled to box2d world)
+         * @param dw angular velocity change
+         * @param parent pointer to the parent body (used for coordinate transformations)
+         */
+        void propagateVelocityChange(const float& dx, const float& dy, const float& dw, const b2Body* parent);
     };
 
     /**
@@ -156,6 +164,8 @@ namespace sim_env{
         void setPosition(float v) override;
         float getVelocity() const override;
         void setVelocity(float v) override;
+        Eigen::Array2f getPositionLimits() const override;
+        Eigen::Array2f getVelocityLimits() const override;
         unsigned int getIndex() const override;
         JointType getJointType() const override;
         std::string getName() const override;
@@ -164,7 +174,9 @@ namespace sim_env{
         WorldPtr getWorld() const override;
         ObjectPtr getObject() const override;
         virtual LinkPtr getChildLink() const override;
+        Box2DLinkPtr getChildBox2DLink() const;
         virtual LinkPtr getParentLink() const override;
+        Box2DLinkPtr getParentBox2DLink() const;
         WorldConstPtr getConstWorld() const override;
         ObjectConstPtr getConstObject() const override;
         Box2DWorldPtr getBox2DWorld() const;
@@ -192,7 +204,7 @@ namespace sim_env{
         JointType _joint_type;
         bool _destroyed;
         unsigned int _index;
-        Eigen::Vector2f _limits;
+        Eigen::Array2f _position_limits;
         std::string _object_name;
 
     };
@@ -240,10 +252,12 @@ namespace sim_env{
         virtual Eigen::VectorXi getDOFIndices() override;
 
         virtual Eigen::VectorXf getDOFPositions(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        virtual Eigen::ArrayX2f getDOFPositionLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
         virtual void setDOFPositions(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
 
         virtual Eigen::VectorXf getDOFVelocities(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        virtual Eigen::ArrayX2f getDOFVelocityLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
         virtual void setDOFVelocities(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
 
@@ -306,10 +320,12 @@ namespace sim_env{
         Eigen::VectorXi getDOFIndices() override;
 
         Eigen::VectorXf getDOFPositions(const Eigen::VectorXi &indices=Eigen::VectorXi()) const override;
+        virtual Eigen::ArrayX2f getDOFPositionLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
         void setDOFPositions(const Eigen::VectorXf &values, const Eigen::VectorXi &indices=Eigen::VectorXi()) override;
 
         Eigen::VectorXf getDOFVelocities(const Eigen::VectorXi &indices=Eigen::VectorXi()) const override;
+        virtual Eigen::ArrayX2f getDOFVelocityLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
         void setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices=Eigen::VectorXi()) override;
 
