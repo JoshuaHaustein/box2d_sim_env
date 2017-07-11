@@ -124,6 +124,9 @@ namespace sim_env {
             Box2DObjectStateView(QWidget* parent=0);
             virtual ~Box2DObjectStateView();
 
+        protected:
+            // we use this event filter to capture enter presses on the text boxes
+            bool eventFilter(QObject* qobject, QEvent *event);
         public slots:
             void setCurrentObject(sim_env::ObjectWeakPtr object); // called by robot/object view on click
             void setObjectState(); // called by 'set state' button

@@ -142,11 +142,11 @@ void sim_env::viewer::Box2DLinkView::paint(QPainter *painter, const QStyleOption
     Box2DLinkConstPtr link = _link.lock();
     ObjectPtr object = link->getObject();
     auto logger = DefaultLogger::getInstance();
-    logger->logDebug("drawing link");
+//    logger->logDebug("drawing link");
     if (not object) {
         std::stringstream ss;
         ss << "link " << link->getName() << " did not return a valid parent object";
-        logger->logErr(ss.str());
+        logger->logErr(ss.str(), "[sim_env::viewer::Box2DLinkView::paint]");
     }
     // compute and set transformation relative to object frame
     Eigen::Affine3f world_object_transform = object->getTransform();
@@ -288,8 +288,8 @@ void sim_env::viewer::Box2DWorldView::wheelEvent(QWheelEvent *event) {
 }
 
 void sim_env::viewer::Box2DWorldView::refreshView() {
-    auto logger = DefaultLogger::getInstance();
-    logger->logDebug("REFRESHING WORLD VIEW");
+//    auto logger = DefaultLogger::getInstance();
+//    logger->logDebug("REFRESHING WORLD VIEW");
     _scene->update();
     update();
 }
@@ -338,13 +338,19 @@ void sim_env::viewer::Box2DObjectStateView::synchView() {
     setTitle(title);
     // ensure we have a line edit item for x,y,theta
     if (_object_pose_edits.size() != 3) {
+        // create edit for x value
         QLineEdit* x_edit = new QLineEdit();
+        x_edit->installEventFilter(this);
         _form_layout->addRow("x:", x_edit);
         _object_pose_edits.push_back(x_edit);
+        // create edit for y value
         QLineEdit* y_edit = new QLineEdit();
+        y_edit->installEventFilter(this);
         _form_layout->addRow("y:", y_edit);
         _object_pose_edits.push_back(y_edit);
+        // create edit for theta value
         QLineEdit* theta_edit = new QLineEdit();
+        theta_edit->installEventFilter(this);
         _form_layout->addRow("theta:", theta_edit);
         _object_pose_edits.push_back(theta_edit);
     }
@@ -381,40 +387,38 @@ void sim_env::viewer::Box2DObjectStateView::showValues() {
         return;
     }
     ObjectPtr object = _current_object.lock();
-    auto logger = object->getWorld()->getLogger();
-    std::string prefix("[sim_env::viewer::Box2DObjectStateView::showValues]");
-    logger->logDebug("Reading values", prefix);
     Eigen::VectorXi dof_indices = object->getDOFIndices();
-    logger->logDebug("fetching config", prefix);
     Eigen::VectorXf configuration = object->getDOFPositions(dof_indices);
-    // TODO configuration wrong???
-    logger->logDebug("fetching limits", prefix);
     Eigen::ArrayX2f limits = object->getDOFPositionLimits(dof_indices);
-    logger->logDebug("Values retrieved", prefix);
-    int base_dof_offset = 0;
-    if (object->isStatic()) {
-        // TODO need to get pose from transform
-    } else {
-        base_dof_offset = 3;
-        for (int i = 0; i < 3; ++i) {
-            QString value("%L1");
-            value = value.arg(configuration[i]);
-            _object_pose_edits.at(i)->setText(value);
-        }
+    unsigned int base_dof_offset = 0;
+    // get pose of the object
+    Eigen::Vector3f pose;
+    Eigen::Affine3f tf = object->getTransform();
+    pose[0] = tf.translation()(0);
+    pose[1] = tf.translation()(1);
+    pose[2] = std::acos(tf.rotation()(0, 0));
+    pose[2] = tf.rotation()(1, 0) > 0.0 ? pose[2] : -pose[2];
+    // write the pose into text fields
+    for (int i = 0; i < pose.size(); ++i) {
+        QString value("%L1");
+        value = value.arg(pose[i]);
+        _object_pose_edits.at(i)->setText(value);
     }
-    for (int i = base_dof_offset; i < configuration.size(); ++i) {
+    // now read the rest of the configuration
+    if (not object->isStatic()) {
+        // if the object is not static, the pose is part of the configuration
+        base_dof_offset = 3;
+    }
+    for (unsigned int i = base_dof_offset; i < configuration.size(); ++i) {
         int tick_value = toTickValue(configuration[i], limits(i, 0), limits(i, 1));
         QSlider* slider = _joint_position_sliders.at(i - base_dof_offset);
         slider->blockSignals(true);
         slider->setValue(tick_value);
         slider->blockSignals(false);
     }
-    // TODO check whether this is all we need + test!
-    logger->logDebug("All values read", prefix);
 }
 
 void sim_env::viewer::Box2DObjectStateView::sliderChange(int value) {
-  auto logger = sim_env::DefaultLogger::getInstance();
   if (_current_object.expired()) {
       return;
   }
@@ -432,6 +436,52 @@ void sim_env::viewer::Box2DObjectStateView::sliderChange(int value) {
         return;
     }
   }
+}
+
+bool sim_env::viewer::Box2DObjectStateView::eventFilter(QObject* qobject, QEvent* event) {
+    // we are only interested in key-press and focus-out events
+    if (event->type() != QEvent::FocusOut and event->type() != QEvent::KeyPress) {
+        return false;
+    } else if (event->type() == QEvent::KeyPress) {
+        QKeyEvent *key_event = static_cast<QKeyEvent *>(event);
+        // we are only reacting when the key enter was pressed
+        if (key_event->key() != Qt::Key_Enter) {
+            return false;
+        }
+    }
+    // we do not need to do anything, if we do not have an object
+    if (_current_object.expired()) {
+        return false;
+    }
+    // now we are sure, we have a valid event and an object, so check which text box is the source
+    for (size_t i = 0; i < _object_pose_edits.size(); ++i) {
+        if (_object_pose_edits.at(i) == qobject) { // check whether text box i is the source of the event
+            // if so set the respective coordinate
+            ObjectPtr object = _current_object.lock();
+            Eigen::Affine3f tf = object->getTransform();
+            bool conversion_ok = false;
+            float value = _object_pose_edits.at(i)->text().toFloat(&conversion_ok);
+            if (conversion_ok) {
+                if (i == 0 or i == 1) { // x or y change
+                    tf.translation()(i) = value;
+                    object->setTransform(tf);
+                } else { // theta change
+                    assert(i == 2);
+                    float x = tf.translation()(0);
+                    float y = tf.translation()(1);
+                    tf = Eigen::Translation3f(x, y, 0.0);
+                    tf.rotate(Eigen::AngleAxisf(value, Eigen::Vector3f::UnitZ()));
+                    object->setTransform(tf);
+                }
+            } else {
+                auto logger = object->getWorld()->getLogger();
+                logger->logErr("Could not parse floating number value provided by user.",
+                               "[sim_env::viewer::Box2DObjectStateView::textChange]");
+            }
+            return false; // there is always just one source, so we can safely return
+        }
+    }
+    return false; // we didn't handle this event at all, it's not our problem
 }
 
 void sim_env::viewer::Box2DObjectStateView::setCurrentObject(sim_env::ObjectWeakPtr object) {
