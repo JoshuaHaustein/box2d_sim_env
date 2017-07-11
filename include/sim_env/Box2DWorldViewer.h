@@ -79,7 +79,6 @@ namespace sim_env {
         private:
             QLineF _x_axis;
             QLineF _y_axis;
-            QRectF _bounding_box;
             float _width;
         };
 

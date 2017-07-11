@@ -400,13 +400,11 @@ float Box2DJoint::getPosition() const {
     switch (_joint_type) {
         case JointType::Revolute: {
             b2RevoluteJoint* revolute_joint = static_cast<b2RevoluteJoint*>(_joint);
-            revolute_joint->GetJointAngle();
-            break;
+            return revolute_joint->GetJointAngle();
         }
         case JointType::Prismatic: {
             b2PrismaticJoint* prismatic_joint = static_cast<b2PrismaticJoint*>(_joint);
-            prismatic_joint->GetJointTranslation();
-            break;
+            return prismatic_joint->GetJointTranslation();
         }
     }
     return 0;
@@ -466,7 +464,6 @@ float Box2DJoint::getVelocity() const {
         default:
             throw std::logic_error("[sim_env::Box2DJoint::getVelocity] This joint has an unsupported type");
     }
-    return 0;
 }
 
 void Box2DJoint::setVelocity(float v) {

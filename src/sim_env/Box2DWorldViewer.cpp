@@ -387,6 +387,7 @@ void sim_env::viewer::Box2DObjectStateView::showValues() {
     Eigen::VectorXi dof_indices = object->getDOFIndices();
     logger->logDebug("fetching config", prefix);
     Eigen::VectorXf configuration = object->getDOFPositions(dof_indices);
+    // TODO configuration wrong???
     logger->logDebug("fetching limits", prefix);
     Eigen::ArrayX2f limits = object->getDOFPositionLimits(dof_indices);
     logger->logDebug("Values retrieved", prefix);
@@ -444,7 +445,7 @@ void sim_env::viewer::Box2DObjectStateView::setObjectState() {
 }
 
 int sim_env::viewer::Box2DObjectStateView::toTickValue(float value, float min, float max) {
-    return (int)(std::floor(value - min) / (max - min) * 100.0f);
+    return (int)(std::floor((value - min) / (max - min) * 100.0f));
 }
 
 float sim_env::viewer::Box2DObjectStateView::fromTickValue(int tick, float min, float max) {
