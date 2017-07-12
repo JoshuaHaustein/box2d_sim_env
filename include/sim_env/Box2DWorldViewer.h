@@ -5,16 +5,18 @@
 #ifndef BOX2D_SIM_ENV_BOX2DWORLDVIEWER_H
 #define BOX2D_SIM_ENV_BOX2DWORLDVIEWER_H
 
-#include <QtGui/QApplication>
 #include <sim_env/Box2DWorld.h>
+// Qt includes
+#include <QtGui/QApplication>
 #include <QtGui/QGraphicsView>
 #include <QtGui/QGraphicsItem>
 #include <QtGui/QColor>
 #include <QtGui/QGroupBox>
-
-class QLineEdit;
-class QSlider;
-class QFormLayout;
+#include <QtGui/QLineEdit>
+#include <QtGui/QSlider>
+#include <QtGui/QFormLayout>
+// stl includes
+#include <thread>
 
 namespace sim_env {
     namespace viewer {
@@ -82,41 +84,6 @@ namespace sim_env {
             float _width;
         };
 
-        class Box2DWorldView : public QGraphicsView {
-            Q_OBJECT
-            friend class Box2DRobotView;
-            friend class Box2DObjectView;
-        public:
-            Box2DWorldView(int width, int height, QWidget *parent = 0);
-            ~Box2DWorldView();
-            void setBox2DWorld(Box2DWorldConstPtr world);
-            /**
-             * Repopulates the visualized scene by recreating all child views based on the currently
-             * set Box2D world.
-             */
-            void repopulate();
-            void drawFrame(const Eigen::Affine3f &frame, float length=1.0f, float width=0.01f);
-            virtual QSize sizeHint() const override;
-//            virtual QSize minimumSizeHint() const override;
-
-        public slots:
-            void refreshView();
-        signals:
-            void objectSelected(sim_env::ObjectWeakPtr object);
-        protected:
-            void setSelectedObject(sim_env::ObjectWeakPtr object);
-            void wheelEvent(QWheelEvent *event) override;
-            void scaleView(double scale_factor);
-            // Variables
-            QGraphicsScene *_scene;
-            QTimer* _refresh_timer;
-            int _width;
-            int _height;
-            Box2DWorldConstWeakPtr _world;
-            sim_env::ObjectWeakPtr _currently_selected_object;
-            std::vector<Box2DObjectView *> _object_views;
-            std::vector<Box2DRobotView *> _robot_views;
-        };
 
         class Box2DObjectStateView : public QGroupBox {
             Q_OBJECT
@@ -138,13 +105,67 @@ namespace sim_env {
             std::vector<QLineEdit*> _object_pose_edits;
             std::vector<QSlider*> _joint_position_sliders;
             QFormLayout* _form_layout;
-            bool _ignore_input_signals;
 
             void synchView();
             void showValues();
             int toTickValue(float value, float min, float max);
             float fromTickValue(int tick, float min, float max);
+        };
 
+        class Box2DWorldView : public QGraphicsView {
+        Q_OBJECT
+            friend class Box2DRobotView;
+            friend class Box2DObjectView;
+        public:
+            Box2DWorldView(int width, int height, QWidget *parent = 0);
+            ~Box2DWorldView();
+            void setBox2DWorld(Box2DWorldConstPtr world);
+            /**
+             * Repopulates the visualized scene by recreating all child views based on the currently
+             * set Box2D world.
+             */
+            void repopulate();
+            void drawFrame(const Eigen::Affine3f &frame, float length=1.0f, float width=0.01f);
+            virtual QSize sizeHint() const override;
+
+        public slots:
+            void refreshView();
+        signals:
+            void objectSelected(sim_env::ObjectWeakPtr object);
+        protected:
+            void setSelectedObject(sim_env::ObjectWeakPtr object);
+            void wheelEvent(QWheelEvent *event) override;
+            void scaleView(double scale_factor);
+            // Variables
+            QGraphicsScene *_scene;
+            QTimer* _refresh_timer;
+            int _width;
+            int _height;
+            Box2DWorldConstWeakPtr _world;
+            sim_env::ObjectWeakPtr _currently_selected_object;
+            std::vector<Box2DObjectView *> _object_views;
+            std::vector<Box2DRobotView *> _robot_views;
+        };
+
+        class Box2DSimulationController : public QObject {
+            Q_OBJECT
+        public:
+            Box2DSimulationController(Box2DWorldPtr world);
+            ~Box2DSimulationController();
+            void startSimulation();
+            void stopSimulation();
+        public slots:
+            void triggerSimulation(bool run);
+        private:
+            void terminateThread();
+            // Simulation thread for running box2d world.
+            struct SimulationThread {
+                std::thread simulation_thread;
+                bool is_running;
+                Box2DWorldWeakPtr world;
+                void run();
+            };
+            SimulationThread _simulation_thread;
         };
     }
 
@@ -167,6 +188,7 @@ namespace sim_env {
          */
         void show(int argc = 0, char** argv = nullptr);
         void drawFrame(const Eigen::Affine3f &transform, float length=1.0f, float width=0.01f) override;
+
     protected:
         void log(const std::string& msg, const std::string& prefix,
                  Logger::LogLevel level=Logger::LogLevel::Info) const;
@@ -177,10 +199,15 @@ namespace sim_env {
         std::unique_ptr<QApplication> _app;
         std::unique_ptr<QWidget> _root_widget;
         viewer::Box2DWorldView* _world_view;
+        // this is a qt object, so we keep a pointer.
+        std::unique_ptr<viewer::Box2DSimulationController> _simulation_controller;
         int _argc;
         char** _argv;
+        bool _is_showing;
 
+        // private methods
         void createUI();
+        QWidget* createBottomBar();
         QWidget* createSideBar();
     };
 }

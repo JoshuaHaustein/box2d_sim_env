@@ -36,7 +36,7 @@
 int main(int argc, char **argv) {
     sim_env::Box2DWorldPtr world = std::make_shared<sim_env::Box2DWorld>();
     world->getLogger()->setLevel(sim_env::Logger::LogLevel::Debug);
-    world->loadWorld("/home/joshua/projects/planning_ws/src/box2d_sim_env/test_data/test_env.yaml");
+    world->loadWorld("/home/joshua/projects/planning_catkin/src/box2d_sim_env/test_data/test_env.yaml");
 //    sim_env::ObjectPtr object = world->getObject("");
     std::vector<sim_env::RobotPtr> robots;
     world->getRobots(robots);
@@ -45,14 +45,6 @@ int main(int argc, char **argv) {
     world_viewer->show(argc, argv);
     auto robot_transform = robot->getTransform();
     world_viewer->drawFrame(robot_transform);
-    auto link_frame = robot->getLink("test_robot_finger_l_1")->getTransform();
-    world_viewer->drawFrame(link_frame, 0.5);
-    link_frame = robot->getLink("test_robot_finger_l_2")->getTransform();
-    world_viewer->drawFrame(link_frame, 0.5);
-    link_frame = robot->getLink("test_robot_finger_r_1")->getTransform();
-    world_viewer->drawFrame(link_frame, 0.5);
-    link_frame = robot->getLink("test_robot_finger_r_2")->getTransform();
-    world_viewer->drawFrame(link_frame, 0.5);
     return world_viewer->run();
 }
 

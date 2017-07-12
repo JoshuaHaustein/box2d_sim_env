@@ -7,7 +7,6 @@
 #include "sim_env/Box2DWorld.h"
 #include "sim_env/Box2DWorldViewer.h"
 #include "sim_env/YamlUtils.h"
-#include "Box2D/Box2D.h"
 #include <boost/filesystem.hpp>
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point_xy.hpp>
@@ -1035,7 +1034,8 @@ unsigned int Box2DRobot::getNumDOFs() const {
 /////////////////////* Definition of Box2DWorld members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-Box2DWorld::Box2DWorld() : _world(nullptr), _b2_ground_body(nullptr) {
+Box2DWorld::Box2DWorld() : _world(nullptr), _b2_ground_body(nullptr), _time_step(0.01f),
+    _velocity_steps(10), _position_steps(10) {
 }
 
 Box2DWorld::~Box2DWorld() {
@@ -1096,7 +1096,9 @@ void Box2DWorld::getRobots(std::vector<RobotPtr> &robots) const {
 
 void Box2DWorld::stepPhysics(int steps) {
     Box2DWorldLock lock(world_mutex);
-    // TODO
+    for (int i = 0; i < steps; ++i) {
+        _world->Step(_time_step, _velocity_steps, _position_steps);
+    }
 }
 
 bool Box2DWorld::supportsPhysics() const {
@@ -1104,11 +1106,27 @@ bool Box2DWorld::supportsPhysics() const {
 }
 
 void Box2DWorld::setPhysicsTimeStep(float physics_step) {
-    //TODO
+    _time_step = physics_step;
 }
 
-void Box2DWorld::getPhysicsTimeStep() const {
-    //TODO
+void Box2DWorld::setVelocitySteps(int velocity_steps) {
+    _velocity_steps = velocity_steps;
+}
+
+void Box2DWorld::setPositionSteps(int position_steps) {
+    _position_steps = position_steps;
+}
+
+float Box2DWorld::getPhysicsTimeStep() const {
+    return _time_step;
+}
+
+int Box2DWorld::getVelocitySteps() const {
+    return _velocity_steps;
+}
+
+int Box2DWorld::getPositionSteps() const {
+    return _position_steps;
 }
 
 WorldViewerPtr Box2DWorld::getViewer() {

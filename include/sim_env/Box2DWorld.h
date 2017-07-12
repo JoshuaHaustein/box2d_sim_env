@@ -8,12 +8,7 @@
 #include "Box2DIOUtils.h"
 #include <boost/filesystem/path.hpp>
 #include <yaml-cpp/yaml.h>
-
-// Forward declarations of Box2D stuff
-class b2World;
-class b2Body;
-class b2Joint;
-class b2BodyDef;
+#include "Box2D/Box2D.h"
 
 namespace sim_env{
     class Box2DObject;
@@ -403,8 +398,13 @@ namespace sim_env{
         bool supportsPhysics() const override;
 
         void setPhysicsTimeStep(float physics_step) override;
+        void setVelocitySteps(int velocity_steps);
+        void setPositionSteps(int position_steps);
 
-        void getPhysicsTimeStep() const override;
+
+        float getPhysicsTimeStep() const override;
+        int getVelocitySteps() const;
+        int getPositionSteps() const;
 
         WorldViewerPtr getViewer() override;
 
@@ -415,7 +415,6 @@ namespace sim_env{
 
         float getGravity() const;
 
-
     protected:
         std::shared_ptr<b2World> getRawBox2DWorld();
         b2Body* getGroundBody();
@@ -425,6 +424,9 @@ namespace sim_env{
         std::shared_ptr<b2World> _world;
         LoggerPtr _logger;
         float _scale;
+        float _time_step;
+        int _velocity_steps;
+        int _position_steps;
         std::map<std::string, Box2DObjectPtr> _objects;
         std::map<std::string, Box2DRobotPtr> _robots;
 
