@@ -98,6 +98,7 @@ add_executable(box2d_sim_env_manual_test tests/test_manual.cpp)
 
 target_link_libraries(box2d_sim_env_manual_test
         box2d_sim_env
+        sim_env
         ${catkin_LIBRARIES}
         ${Boost_LIBRARIES}
         yaml-cpp
@@ -109,6 +110,7 @@ if(CATKIN_ENABLE_TESTING)
     catkin_add_gtest(test_Box2DWorld tests/test_Box2DWorld.cpp)
     target_link_libraries(test_Box2DWorld
             box2d_sim_env
+            sim_env
             ${catkin_LIBRARIES}
             ${Boost_LIBRARIES}
             ${gtest_LIBRARIES}

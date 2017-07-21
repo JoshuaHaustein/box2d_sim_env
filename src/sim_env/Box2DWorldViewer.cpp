@@ -15,6 +15,7 @@
 #include <QtGui/QWidget>
 #include <QWheelEvent>
 #include <QTimer>
+#include <QtGui/QTabWidget>
 
 //////////////////////////////////////// Box2DObjectView ////////////////////////////////////////
 sim_env::viewer::Box2DObjectView::Box2DObjectView(sim_env::Box2DObjectPtr object, sim_env::viewer::Box2DWorldView* world_view) {
@@ -222,8 +223,6 @@ void sim_env::viewer::Box2DFrameView::paint(QPainter* painter, const QStyleOptio
 sim_env::viewer::Box2DObjectStateView::Box2DObjectStateView(QWidget *parent):QGroupBox(parent) {
     setTitle("Selected object state");
     _form_layout = new QFormLayout();
-    QPushButton* set_state_button = new QPushButton("synch");
-    _form_layout->addRow("Set State", set_state_button);
     setLayout(_form_layout);
 }
 
@@ -646,14 +645,16 @@ void sim_env::Box2DWorldViewer::createUI() {
 }
 
 QWidget* sim_env::Box2DWorldViewer::createBottomBar() {
-    QGroupBox* bottom_group = new QGroupBox("Dynamics model control", _root_widget.get());
+    QTabWidget* tab_widget = new QTabWidget(_root_widget.get());
+    QGroupBox* bottom_group = new QGroupBox("Dynamics model control");
+    tab_widget->addTab(bottom_group, "Simulation control");
     QHBoxLayout* bottom_group_layout = new QHBoxLayout();
     QPushButton* control_button = new QPushButton("Run simulation", bottom_group);
     control_button->setCheckable(true);
     bottom_group_layout->addWidget(control_button);
     bottom_group->setLayout(bottom_group_layout);
     QObject::connect(control_button, SIGNAL(clicked(bool)), _simulation_controller.get(), SLOT(triggerSimulation(bool)));
-    return bottom_group;
+    return tab_widget;
 }
 
 QWidget* sim_env::Box2DWorldViewer::createSideBar() {

@@ -189,17 +189,11 @@ b2Body *Box2DLink::getBody() {
 }
 
 void Box2DLink::registerChildJoint(Box2DJointPtr joint) {
-//    auto position_in_list = std::find(_child_joints.begin(), _child_joints.end(), joint);
-//    if (position_in_list == _child_joints.end()) {
     _child_joints.push_back(Box2DJointWeakPtr(joint));
-//    }
 }
 
 void Box2DLink::registerParentJoint(Box2DJointPtr joint) {
-//    auto position_in_list = std::find(_parent_joints.begin(), _parent_joints.end(), joint);
-//    if (position_in_list == _parent_joints.end()) {
     _parent_joints.push_back(Box2DJointWeakPtr(joint));
-//    }
 }
 
 void Box2DLink::getGeometry(std::vector<std::vector<Eigen::Vector2f> > &geometry) const {
@@ -575,6 +569,24 @@ ObjectPtr Box2DJoint::getObject() const {
 ObjectConstPtr Box2DJoint::getConstObject() const {
     return getObject();
 }
+
+void Box2DJoint::setControlTorque(float value) {
+    switch (_joint_type) {
+        case JointType::Prismatic: {
+            // TODO
+            throw std::logic_error("setControlTorque for pristmatic joints is not implemented yet");
+            break;
+        }
+        case JointType::Revolute: {
+            b2RevoluteJoint* revolute_joint = static_cast<b2RevoluteJoint*>(_joint);
+            revolute_joint->EnableMotor(true);
+            // TODO this is a hack. does it work?
+            revolute_joint->SetMaxMotorTorque(value);
+            revolute_joint->SetMotorSpeed(std::numeric_limits<float>::max());
+            break;
+        }
+    }
+}
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DObject members *//////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -686,11 +698,11 @@ void Box2DObject::setActiveDOFs(const Eigen::VectorXi &indices) {
     _active_dof_indices = indices;
 }
 
-Eigen::VectorXi Box2DObject::getActiveDOFs() {
+Eigen::VectorXi Box2DObject::getActiveDOFs() const {
     return _active_dof_indices;
 }
 
-Eigen::VectorXi Box2DObject::getDOFIndices() {
+Eigen::VectorXi Box2DObject::getDOFIndices() const {
     Eigen::VectorXi dofs(_num_dofs);
     for (unsigned int i = 0; i < _num_dofs; ++i) {
         dofs[i] = i;
@@ -888,16 +900,22 @@ LinkPtr Box2DObject::getBaseLink() {
     return _base_link;
 }
 
+Box2DLinkPtr Box2DObject::getBox2DBaseLink() {
+   return _base_link;
+}
+
 unsigned int Box2DObject::getNumDOFs() const {
     return _num_dofs;
 }
 
-
+Box2DJointPtr Box2DObject::getJoint(unsigned int idx) {
+    return _sorted_joints.at(idx);
+}
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DRobot members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 Box2DRobot::Box2DRobot(const Box2DObjectDescription &robot_desc, Box2DWorldPtr world):_destroyed(false) {
-    // Up till now a robot is just a semantically special object. Rather than implementing
+    // A robot is essentially an actuated object. Rather than implementing
     // the same functionalities twice (for object and robot), we use composition here.
     // Also we do not wanna have diamond inheritance
     _robot_object = Box2DObjectPtr(new Box2DObject(robot_desc, world));
@@ -930,11 +948,11 @@ void Box2DRobot::setActiveDOFs(const Eigen::VectorXi &indices) {
     _robot_object->setActiveDOFs(indices);
 }
 
-Eigen::VectorXi Box2DRobot::getActiveDOFs() {
+Eigen::VectorXi Box2DRobot::getActiveDOFs() const {
     return _robot_object->getActiveDOFs();
 }
 
-Eigen::VectorXi Box2DRobot::getDOFIndices() {
+Eigen::VectorXi Box2DRobot::getDOFIndices() const {
     return _robot_object->getDOFIndices();
 }
 
@@ -1030,6 +1048,72 @@ unsigned int Box2DRobot::getNumDOFs() const {
     return _robot_object->getNumDOFs();
 }
 
+void Box2DRobot::control(float timestep) {
+    // Only do sth if there is actually a controller registered
+    if (not _controller_callback) {
+        return;
+    }
+    // Get positions of currently active DoFs
+    Eigen::VectorXf positions = getDOFPositions();
+    // Get velocities of currently active DoFs
+    Eigen::VectorXf velocitites = getDOFVelocities();
+    assert(velocitites.size() == positions.size());
+    // Create efforts array
+    Eigen::VectorXf efforts(velocitites.size());
+    bool success = _controller_callback(positions, velocitites, timestep, shared_from_this(), efforts);
+    if (success) { // we have a control to apply
+        assert(efforts.size() == positions.size());
+        commandEfforts(efforts);
+    } else {// else we don't do anything apart from logging
+        LoggerPtr logger = getWorld()->getLogger();
+        logger->logWarn("Controller indicated failure. Not applying any efforts.", "[sim_env::Box2DRobot::control]");
+    }
+}
+
+void Box2DRobot::setController(ControlCallback controll_fn) {
+    _controller_callback = controll_fn;
+}
+
+void Box2DRobot::commandEfforts(const Eigen::VectorXf &target) {
+    Eigen::VectorXi active_dofs = _robot_object->getActiveDOFs();
+    for (int i = 0; i < active_dofs.size(); ++i) {
+        int dof_idx = active_dofs[i];
+        // check whether we have to move the base link
+        if (not isStatic() and dof_idx < 3) {
+            Box2DLinkPtr base_link = _robot_object->getBox2DBaseLink();
+            b2Body* body = base_link->getBody();
+            switch(dof_idx) {
+                case 0: {
+                    // force in x
+                    body->ApplyForceToCenter(b2Vec2(target[i], 0.0f), true);
+                    break;
+                }
+                case 1: {
+                    // force in y
+                    body->ApplyForceToCenter(b2Vec2(target[i], 0.0f), true);
+                    break;
+                }
+                case 2: {
+                    // torque
+                    body->ApplyTorque(target[i], true);
+                    break;
+                }
+                default: {
+                    // impossible case
+                    throw std::logic_error("[sim_env::Box2DRobot::commandEfforts] Encountered an impossible state.");
+                    break;
+                }
+            }
+        } else {
+            // torque/effort for joint
+            int dof_offset = isStatic() ? 0 : 3;
+            int joint_idx = dof_idx - dof_offset;
+            assert(joint_idx > 0);
+            Box2DJointPtr joint = _robot_object->getJoint((unsigned int) joint_idx);
+            joint->setControlTorque(target[i]);
+        }
+    }
+}
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DWorld members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -1097,6 +1181,11 @@ void Box2DWorld::getRobots(std::vector<RobotPtr> &robots) const {
 void Box2DWorld::stepPhysics(int steps) {
     Box2DWorldLock lock(world_mutex);
     for (int i = 0; i < steps; ++i) {
+        // call control functions of all robots in the scene
+        for (auto& robot_map_iter : _robots) {
+            robot_map_iter.second->control(_time_step);
+        }
+        // simulate physics
         _world->Step(_time_step, _velocity_steps, _position_steps);
     }
 }

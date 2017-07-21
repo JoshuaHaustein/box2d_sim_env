@@ -22,6 +22,7 @@ namespace sim_env {
     namespace viewer {
       class Box2DWorldView;
 
+        ////////////////////// VIEWS OF WOLRD COMPONENTS, I.E. VISUAL ITEMS /////////////////////////
         class Box2DObjectView : public QGraphicsItem {
         public:
             Box2DObjectView(Box2DObjectPtr object, Box2DWorldView* world_view);
@@ -84,7 +85,7 @@ namespace sim_env {
             float _width;
         };
 
-
+        ////////////////////// QT Widgets ////////////////////////
         class Box2DObjectStateView : public QGroupBox {
             Q_OBJECT
         public:
@@ -110,6 +111,10 @@ namespace sim_env {
             void showValues();
             int toTickValue(float value, float min, float max);
             float fromTickValue(int tick, float min, float max);
+        };
+
+        class Box2DControllerView : public QGroupBox {
+            // TODO implement view that allows interaction with position/velocity controller
         };
 
         class Box2DWorldView : public QGraphicsView {

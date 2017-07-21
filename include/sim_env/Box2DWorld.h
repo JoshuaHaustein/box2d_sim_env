@@ -5,6 +5,7 @@
 #define BOX2D_SIM_ENV_BOX2DWORLD_H
 
 #include "sim_env/SimEnv.h"
+#include "sim_env/Controller.h"
 #include "Box2DIOUtils.h"
 #include <boost/filesystem/path.hpp>
 #include <yaml-cpp/yaml.h>
@@ -60,6 +61,7 @@ namespace sim_env{
         friend class Box2DWorld;
         friend class Box2DJoint;
         friend class Box2DObject;
+        friend class Box2DRobot;
     public:
         /**
          * A link can only be instantiated by an Box2DObject.
@@ -146,6 +148,7 @@ namespace sim_env{
         friend class Box2DWorld;
         friend class Box2DObject;
         friend class Box2DLink;
+        friend class Box2DRobot;
     public:
         /**
          * A Box2DJoint can only be instantiated by an object/robot.
@@ -190,6 +193,7 @@ namespace sim_env{
         void setObjectName(const std::string& name);
         void setIndex(unsigned int index);
         void resetPosition(float value, bool child_joint_override);
+        void setControlTorque(float value);
     private:
         Box2DWorldWeakPtr _world;
         std::string _name;
@@ -242,10 +246,8 @@ namespace sim_env{
 
         virtual unsigned int getNumDOFs() const override;
 
-        virtual Eigen::VectorXi getActiveDOFs() override;
-
-        virtual Eigen::VectorXi getDOFIndices() override;
-
+        virtual Eigen::VectorXi getActiveDOFs() const override;
+        virtual Eigen::VectorXi getDOFIndices() const override;
         virtual Eigen::VectorXf getDOFPositions(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
         virtual Eigen::ArrayX2f getDOFPositionLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
@@ -263,6 +265,7 @@ namespace sim_env{
         virtual LinkPtr getLink(const std::string &link_name) override;
         virtual LinkConstPtr getConstLink(const std::string &link_name) const override;
         virtual LinkPtr getBaseLink() override;
+        virtual Box2DLinkPtr getBox2DBaseLink();
 
         virtual void getJoints(std::vector<JointPtr>& joints) override;
         virtual void getJoints(std::vector<JointConstPtr>& joints) const override;
@@ -275,6 +278,7 @@ namespace sim_env{
         // function for desctruction. called by Box2DWorld when it is destroyed.
         void destroy(const std::shared_ptr<b2World>& b2world);
         virtual void setName(const std::string &name) override;
+        Box2DJointPtr getJoint(unsigned int idx);
     private:
         std::string _name;
         Eigen::Affine3f _transform;
@@ -292,8 +296,9 @@ namespace sim_env{
 
     /**
      * Box2DRobot - This class implements a Robot in box2d.
+     * See sim_env::Object and sim_env::Robot for documentation.
      */
-    class Box2DRobot : public Robot {
+    class Box2DRobot : public Robot, public std::enable_shared_from_this<Box2DRobot>{
         friend class Box2DWorld;
     public:
         /**
@@ -301,64 +306,55 @@ namespace sim_env{
          */
         Box2DRobot() = delete;
         ~Box2DRobot();
-
+        // entity functions
         virtual std::string getName() const override;
-
         void setTransform(const Eigen::Affine3f &tf) override;
-
+        EntityType getType() const override;
+        Eigen::Affine3f getTransform() const override;
+        WorldPtr getWorld() const override;
+        WorldConstPtr getConstWorld() const override;
+        // DOFs
         void setActiveDOFs(const Eigen::VectorXi &indices) override;
-
         virtual unsigned int getNumDOFs() const override;
-
-        Eigen::VectorXi getActiveDOFs() override;
-
-        Eigen::VectorXi getDOFIndices() override;
-
+        Eigen::VectorXi getActiveDOFs() const override;
+        Eigen::VectorXi getDOFIndices() const override;
         Eigen::VectorXf getDOFPositions(const Eigen::VectorXi &indices=Eigen::VectorXi()) const override;
         virtual Eigen::ArrayX2f getDOFPositionLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
-
         void setDOFPositions(const Eigen::VectorXf &values, const Eigen::VectorXi &indices=Eigen::VectorXi()) override;
-
         Eigen::VectorXf getDOFVelocities(const Eigen::VectorXi &indices=Eigen::VectorXi()) const override;
         virtual Eigen::ArrayX2f getDOFVelocityLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
-
         void setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices=Eigen::VectorXi()) override;
-
         bool isStatic() const override;
-
+        // collision checking
         bool checkCollision(CollidableConstPtr other) const override;
-
         bool checkCollision(const std::vector<CollidableConstPtr> &others) const override;
-
-        EntityType getType() const override;
-
-        Eigen::Affine3f getTransform() const override;
-
-        WorldPtr getWorld() const override;
-
-        WorldConstPtr getConstWorld() const override;
-
+        // links
         virtual void getLinks(std::vector<LinkPtr>& links) override;
         virtual void getLinks(std::vector<LinkConstPtr>& links) const override;
         virtual LinkPtr getLink(const std::string &link_name) override;
         virtual LinkConstPtr getConstLink(const std::string &link_name) const override;
         virtual LinkPtr getBaseLink() override;
-
+        // joints
         virtual void getJoints(std::vector<JointPtr>& joints) override;
         virtual void getJoints(std::vector<JointConstPtr>& joints) const override;
         virtual JointPtr getJoint(const std::string &joint_name) override;
         virtual JointConstPtr getConstJoint(const std::string &joint_name) const override;
-
+        // control
+        virtual void setController(ControlCallback control_fn) override;
     protected:
         // protected constructor to ensure construction is only done by friend classes
         Box2DRobot(const Box2DObjectDescription &robot_desc, Box2DWorldPtr world);
         // destruction is issued by Box2DWorld
         void destroy(const std::shared_ptr<b2World>& b2world);
         virtual void setName(const std::string &name) override;
+        void control(float timestep);
 
     private:
         Box2DObjectPtr _robot_object;
         bool _destroyed;
+        ControlCallback _controller_callback;
+
+        void commandEfforts(const Eigen::VectorXf& target);
     };
 
     /**
