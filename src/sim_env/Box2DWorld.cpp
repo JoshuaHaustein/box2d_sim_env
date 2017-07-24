@@ -1049,6 +1049,8 @@ unsigned int Box2DRobot::getNumDOFs() const {
 }
 
 void Box2DRobot::control(float timestep) {
+    // First lock the controller to ensure no other thread removes it while we do a control
+    std::lock_guard<std::recursive_mutex> lock(_controller_mutex);
     // Only do sth if there is actually a controller registered
     if (not _controller_callback) {
         return;
@@ -1071,10 +1073,14 @@ void Box2DRobot::control(float timestep) {
 }
 
 void Box2DRobot::setController(ControlCallback controll_fn) {
+    // First lock the controller to ensure we do not replace the controller while it's operating
+    std::lock_guard<std::recursive_mutex> lock(_controller_mutex);
     _controller_callback = controll_fn;
 }
 
 void Box2DRobot::commandEfforts(const Eigen::VectorXf &target) {
+    // we are changing the state of Box2D objects here, so we should lock the world
+    Box2DWorldLock lock(_robot_object->getBox2DWorld()->world_mutex);
     Eigen::VectorXi active_dofs = _robot_object->getActiveDOFs();
     for (int i = 0; i < active_dofs.size(); ++i) {
         int dof_idx = active_dofs[i];

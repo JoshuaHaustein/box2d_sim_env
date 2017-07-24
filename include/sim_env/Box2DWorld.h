@@ -4,6 +4,7 @@
 #ifndef BOX2D_SIM_ENV_BOX2DWORLD_H
 #define BOX2D_SIM_ENV_BOX2DWORLD_H
 
+#include <mutex>
 #include "sim_env/SimEnv.h"
 #include "sim_env/Controller.h"
 #include "Box2DIOUtils.h"
@@ -347,13 +348,16 @@ namespace sim_env{
         // destruction is issued by Box2DWorld
         void destroy(const std::shared_ptr<b2World>& b2world);
         virtual void setName(const std::string &name) override;
+        // calls control callbacks. should be called only by step function of Box2DWorld
         void control(float timestep);
 
     private:
         Box2DObjectPtr _robot_object;
         bool _destroyed;
+        mutable std::recursive_mutex _controller_mutex; // for locks to access _controller_callback
         ControlCallback _controller_callback;
 
+        // applies the given efforts to the underlying Box2D bodies. Locks the Box2D world.
         void commandEfforts(const Eigen::VectorXf& target);
     };
 
@@ -364,6 +368,7 @@ namespace sim_env{
         friend class Box2DLink; // these classes need access to the underlying Box2D world
         friend class Box2DJoint;
         friend class Box2DObject;
+        friend class Box2DRobot;
     public:
         static constexpr float GROUND_DEFAULT_MIN_X = -100.0f;
         static constexpr float GROUND_DEFAULT_MIN_Y = -100.0f;
@@ -396,7 +401,6 @@ namespace sim_env{
         void setPhysicsTimeStep(float physics_step) override;
         void setVelocitySteps(int velocity_steps);
         void setPositionSteps(int position_steps);
-
 
         float getPhysicsTimeStep() const override;
         int getVelocitySteps() const;
