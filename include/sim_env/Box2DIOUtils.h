@@ -29,7 +29,8 @@ namespace sim_env {
         std::string link_a;
         std::string link_b;
         Eigen::Vector2f axis;
-        Eigen::Vector2f limits;
+        Eigen::Vector2f position_limits;
+        Eigen::Vector2f velocity_limits;
         std::string joint_type;
         float max_torque;
         bool actuated;
@@ -174,7 +175,8 @@ namespace YAML {
             node["link_a"] = jd.link_a;
             node["link_b"] = jd.link_b;
             node["axis"] = jd.axis;
-            node["limits"] = jd.limits;
+            node["position_limits"] = jd.position_limits;
+            node["velocity_limits"] = jd.velocity_limits;
             node["max_torque"] = jd.max_torque;
             node["actuated"] = jd.actuated;
             node["joint_type"] = jd.joint_type;
@@ -190,7 +192,8 @@ namespace YAML {
             ld.link_a = node["link_a"].as<std::string>();
             ld.link_b = node["link_b"].as<std::string>();
             ld.axis = node["axis"].as<Eigen::Vector2f>();
-            ld.limits = node["limits"].as<Eigen::Vector2f>();
+            ld.position_limits = node["position_limits"].as<Eigen::Vector2f>();
+            ld.velocity_limits = node["velocity_limits"].as<Eigen::Vector2f>();
             ld.max_torque = node["max_torque"].as<float>();
             ld.actuated = node["actuated"].as<bool>();
             return true;

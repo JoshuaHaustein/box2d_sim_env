@@ -8,6 +8,7 @@
 #include <cstring>
 #include <random>
 #include <chrono>
+#include <memory>
 // QT includes
 #include <QtGui/QVBoxLayout>
 #include <QtGui/QLabel>
@@ -16,6 +17,16 @@
 #include <QWheelEvent>
 #include <QTimer>
 #include <QtGui/QTabWidget>
+#include <QtGui/QRadioButton>
+
+//////////////////////////////////////// utils /////////////////////////////////////////////
+int sim_env::viewer::utils::toTickValue(float value, float min, float max) {
+    return (int)(std::floor((value - min) / (max - min) * 100.0f));
+}
+
+float sim_env::viewer::utils::fromTickValue(int tick, float min, float max) {
+    return (float)(tick) / 100.0f * (max - min) + min;
+}
 
 //////////////////////////////////////// Box2DObjectView ////////////////////////////////////////
 sim_env::viewer::Box2DObjectView::Box2DObjectView(sim_env::Box2DObjectPtr object, sim_env::viewer::Box2DWorldView* world_view) {
@@ -318,7 +329,7 @@ void sim_env::viewer::Box2DObjectStateView::showValues() {
         base_dof_offset = 3;
     }
     for (unsigned int i = base_dof_offset; i < configuration.size(); ++i) {
-        int tick_value = toTickValue(configuration[i], limits(i, 0), limits(i, 1));
+        int tick_value = utils::toTickValue(configuration[i], limits(i, 0), limits(i, 1));
         QSlider* slider = _joint_position_sliders.at(i - base_dof_offset);
         slider->blockSignals(true);
         slider->setValue(tick_value);
@@ -338,7 +349,7 @@ void sim_env::viewer::Box2DObjectStateView::sliderChange(int value) {
             indices[0] = i + dof_offset;
             Eigen::ArrayX2f limits = object->getDOFPositionLimits();
             Eigen::VectorXf configuration(1);
-            configuration[0] = fromTickValue(value, limits(indices[0], 0), limits(indices[0], 1));
+            configuration[0] = utils::fromTickValue(value, limits(indices[0], 0), limits(indices[0], 1));
             object->setDOFPositions(configuration, indices);
             emit valuesChanged();
             return;
@@ -398,16 +409,304 @@ void sim_env::viewer::Box2DObjectStateView::setCurrentObject(sim_env::ObjectWeak
     showValues();
 }
 
-void sim_env::viewer::Box2DObjectStateView::setObjectState() {
-    // TODO
+
+//////////////////////////////////////// Box2DControllerView ////////////////////////////////////////
+
+sim_env::viewer::Box2DControllerView::Box2DControllerView(QWidget *parent) : QGroupBox(parent) {
+    initView();
 }
 
-int sim_env::viewer::Box2DObjectStateView::toTickValue(float value, float min, float max) {
-    return (int)(std::floor((value - min) / (max - min) * 100.0f));
+sim_env::viewer::Box2DControllerView::~Box2DControllerView() {
 }
 
-float sim_env::viewer::Box2DObjectStateView::fromTickValue(int tick, float min, float max) {
-    return (float)(tick) / 100.0f * (max - min) + min;
+void sim_env::viewer::Box2DControllerView::sliderChange(int value) {
+    // TODO also need to have a callback for changes in text fields
+    updateTarget();
+}
+
+void sim_env::viewer::Box2DControllerView::triggerController(bool enable) {
+    setController();
+}
+
+void sim_env::viewer::Box2DControllerView::triggerControllerTypeChange(bool toggled) {
+    updateView();
+    setController();
+}
+
+void sim_env::viewer::Box2DControllerView::setCurrentObject(sim_env::ObjectWeakPtr object) {
+    if (object.expired()) {
+        LoggerPtr logger = DefaultLogger::getInstance();
+        logger->logErr("Provided weak pointer is not referring to a valid object anymore.",
+                       "[sim_env::viewer::Box2DControllerView::setSelectedObject]");
+        return;
+    }
+    sim_env::ObjectPtr object_ptr = object.lock();
+    if (object_ptr->getType() == sim_env::EntityType::Robot) {
+        sim_env::RobotPtr robot = std::dynamic_pointer_cast<sim_env::Robot>(object_ptr);
+        _current_robot = robot;
+        // ensure we have a position controller for this robot
+        auto iter_postion = _position_controllers.find(robot->getName());
+        if (iter_postion == _position_controllers.end()) {
+            _current_position_controller = std::make_shared<sim_env::RobotPositionController>(robot);
+            _position_controllers[robot->getName()] = _current_position_controller;
+        } else {
+            _current_position_controller = iter_postion->second;
+        }
+        // ensure we have a velocity controller for this robot
+        auto iter_velocity = _velocity_controllers.find(robot->getName());
+        if (iter_velocity == _velocity_controllers.end()) {
+            _current_velocity_controller = std::make_shared<sim_env::RobotVelocityController>(robot);
+            _velocity_controllers[robot->getName()] = _current_velocity_controller;
+        } else {
+            _current_velocity_controller = iter_velocity->second;
+        }
+        updateView();
+    }
+}
+
+void sim_env::viewer::Box2DControllerView::initView() {
+    QGridLayout* grid_layout = new QGridLayout();
+    setLayout(grid_layout);
+    _position_button = new QRadioButton("Position control");
+    grid_layout->addWidget(_position_button, 0, 0, 1, 2, Qt::AlignHCenter);
+    QObject::connect(_position_button, SIGNAL(clicked(bool)), this, SLOT(triggerControllerTypeChange(bool)));
+    _velocity_button = new QRadioButton("Velocity control");
+    grid_layout->addWidget(_velocity_button, 1, 0, 1, 2, Qt::AlignHCenter);
+    QObject::connect(_velocity_button, SIGNAL(clicked(bool)), this, SLOT(triggerControllerTypeChange(bool)));
+    _enable_button = new QPushButton("Enable controller");
+    _enable_button->setCheckable(true);
+    grid_layout->addWidget(_enable_button, 0, 2, 2, 2);
+    QObject::connect(_enable_button, SIGNAL(clicked(bool)), this, SLOT(triggerController(bool)));
+    QLabel* target_label = new QLabel("Targets");
+    grid_layout->addWidget(target_label, 2, 0);
+    _x_edit = new QLineEdit();
+    _y_edit = new QLineEdit();
+    _theta_edit = new QLineEdit();
+    grid_layout->addWidget(_x_edit, 2, 1);
+    grid_layout->addWidget(_y_edit, 2, 2);
+    grid_layout->addWidget(_theta_edit, 2, 3);
+    setEnabled(false);
+}
+
+void sim_env::viewer::Box2DControllerView::updateView() {
+    QLayout* layout = this->layout();
+    QGridLayout* grid_layout = dynamic_cast<QGridLayout*>(layout);
+    if (!grid_layout) {
+        throw std::logic_error("[sim_env::viewer::Box2DControllerView] Unkown layout encountered. Should be QGridLayout");
+    }
+    if (_current_robot.expired()) {
+        setEnabled(false);
+        return;
+    }
+    setEnabled(true);
+    if (not _position_button->isChecked() and not _velocity_button->isChecked()) {
+        _position_button->setChecked(true);
+    }
+
+    sim_env::RobotPtr robot = _current_robot.lock();
+    int dof_offest = 3;
+    if (robot->isStatic()) {
+        _x_edit->setEnabled(false);
+        _y_edit->setEnabled(false);
+        _theta_edit->setEnabled(false);
+        dof_offest = 0;
+    }
+    Eigen::VectorXi active_dofs = robot->getActiveDOFs();
+    // run over all dofs and synch view
+    for (int idx = 0; idx < active_dofs.size(); ++idx) {
+        int dof_idx = active_dofs[idx]; // the index of the actual DOF
+        if (dof_idx < 3 and not robot->isStatic()) {
+            // it's a base position DOF (x,y or theta)
+            synchTextValue(dof_idx, robot);
+        } else {
+            // it's a joint DOF
+            JointConstPtr joint = robot->getConstJointFromDOFIndex(dof_idx);
+            int slider_idx = idx - dof_offest;
+            QSlider* slider = nullptr;
+            if (slider_idx >= _sliders.size()) {
+                // add a new slider
+                slider = new QSlider(Qt::Orientation::Horizontal);
+                QObject::connect(slider, SIGNAL(valueChanged(int)), this, SLOT(sliderChange(int)));
+                slider->setTickInterval(100);
+                _sliders.push_back(slider);
+                grid_layout->addWidget(slider);
+            } else {
+                slider = _sliders.at(slider_idx);
+            }
+            synchSliderValue(slider, joint);
+        }
+    }
+    // optionally deactivate unused sliders
+    for (int slider_idx = (int) (active_dofs.size()) - dof_offest; slider_idx < (int)_sliders.size(); ++slider_idx) {
+        _sliders.at(slider_idx)->setEnabled(false);
+    }
+}
+
+void sim_env::viewer::Box2DControllerView::synchSliderValue(QSlider *slider, sim_env::JointConstPtr joint) {
+    Eigen::Array2f limits;
+    float value;
+    if (_position_button->isChecked()) {
+        // position control mode
+        limits = joint->getPositionLimits();
+        value = joint->getPosition();
+    } else {
+        limits = joint->getVelocityLimits();
+        value = joint->getVelocity();
+    }
+    if (isinf(limits[0])) {
+        limits[0] = -utils::LARGE_FLOATING_NUMBER;
+    }
+    if (isinf(limits[1])) {
+        limits[1] = utils::LARGE_FLOATING_NUMBER;
+    }
+    int tick_value = utils::toTickValue(value, limits[0], limits[1]);
+    slider->blockSignals(true);
+    slider->setValue(tick_value);
+    slider->blockSignals(false);
+}
+
+void sim_env::viewer::Box2DControllerView::synchTextValue(int dof_idx, sim_env::RobotPtr robot) {
+    LoggerPtr logger = DefaultLogger::getInstance();
+    float value;
+    Eigen::VectorXi indices(1);
+    indices[0] = dof_idx;
+    if (_position_button->isChecked()) {
+        // position mode
+        Eigen::VectorXf config = robot->getDOFPositions(indices);
+        value = config[0];
+    } else {
+        // velocity mode
+        Eigen::VectorXf velo = robot->getDOFVelocities(indices);
+        value = velo[0];
+    }
+    QString text("%L1");
+    text = text.arg(value);
+    switch(dof_idx) {
+        case 0: {
+            _x_edit->setText(text);
+            break;
+        }
+        case 1: {
+            _y_edit->setText(text);
+            break;
+        }
+        case 2: {
+            _theta_edit->setText(text);
+            break;
+        }
+        default: {
+            logger->logErr("Unknown dof index encountered.", "[sim_env::viewer::Box2DControllerView::synchTextValue]");
+            break;
+        }
+    }
+}
+
+void sim_env::viewer::Box2DControllerView::setController() {
+    if (_current_robot.expired()) {
+        sim_env::LoggerPtr logger = DefaultLogger::getInstance();
+        logger->logErr("Could not access robot - shared pointer expired.",
+                       "[sim_env::viewer::Box2DControllerView::setController]");
+        // TODO we need to delete controllers for this expired robot (would need some kind of delete listener)
+        return;
+    }
+    sim_env::RobotPtr robot = _current_robot.lock();
+    if (_enable_button->isChecked()) {
+        using namespace std::placeholders;
+        if (_position_button->isChecked()) {
+            // set position controller
+            sim_env::Robot::ControlCallback callback = std::bind(&RobotPositionController::control,
+                                                                 _current_position_controller,
+                                                                 _1, _2, _3, _4, _5);
+            robot->getWorld()->getLogger()->logDebug("Setting position controller",
+                                                     "[sim_env::viewer::Box2DControllerView::setController]");
+            robot->setController(callback);
+        } else {
+            // set velocity controller
+            sim_env::Robot::ControlCallback callback = std::bind(&RobotVelocityController::control,
+                                                                 _current_velocity_controller,
+                                                                 _1, _2, _3, _4, _5);
+            robot->getWorld()->getLogger()->logDebug("Setting velocity controller",
+                                                     "[sim_env::viewer::Box2DControllerView::setController]");
+            robot->setController(callback);
+        }
+    } else {
+        sim_env::Robot::ControlCallback empty_callback;
+        robot->setController(empty_callback);
+    }
+}
+
+void sim_env::viewer::Box2DControllerView::updateTarget() {
+    sim_env::RobotPtr robot = _current_robot.lock();
+    if (not robot) {
+        LoggerPtr logger = DefaultLogger::getInstance();
+        logger->logErr("Could not access selected robot - weak pointer expired.",
+                       "[sim_env::viewer::Box2DControllerView::updateTarget]");
+        return;
+    }
+    // If we have a robot we should always have controllers
+    assert(_current_position_controller);
+    assert(_current_velocity_controller);
+    // get the logger from the robot (it may have a different level set)
+    LoggerPtr logger = robot->getWorld()->getLogger();
+    // we set the target's only for the active dofs
+    Eigen::VectorXi active_dofs = robot->getActiveDOFs();
+    Eigen::VectorXf target(active_dofs.size());
+    // run over all dofs an retrieve the values
+    for (size_t i = 0; i < active_dofs.size(); ++i) {
+        int dof = active_dofs[i];
+        if (dof < robot->getNumBaseDOFs()) { // it's a pose dof, i.e., x, y or theta
+            QLineEdit* text_edit;
+            switch(dof) {
+                case 0: {
+                    text_edit = _x_edit;
+                    break;
+                }
+                case 1: {
+                    text_edit = _y_edit;
+                    break;
+                }
+                case 2: {
+                    text_edit = _theta_edit;
+                    break;
+                }
+                default: { // something is seriously wrong if this is the case
+                    throw std::logic_error("[sim_env::viewer::Box2DControllerView::updateTarget]"
+                                           "Encountered invalid dof index. Base dofs should be 0 <= i < 3.");
+                }
+            }
+            // convert text value to float
+            bool conversion_ok = false;
+            float value = text_edit->text().toFloat(&conversion_ok);
+            if (conversion_ok) {
+                target[i] = value;
+            } else {
+                logger->logErr("Could not retrieve target position. Failed to convert to floating point.",
+                               "[sim_env::viewer::Box2DController::View::updateTarget]");
+                Eigen::VectorXi tmp_index(1);
+                tmp_index[0] = dof;
+                Eigen::VectorXf tmp_value(1);
+                if (_velocity_button->isChecked()) {
+                    tmp_value = robot->getDOFVelocities(tmp_index);
+                } else {
+                    tmp_value = robot->getDOFPositions(tmp_index);
+                }
+                target[i] = tmp_value[0];
+            }
+        } else {
+            JointPtr joint = robot->getJointFromDOFIndex(dof);
+            int joint_idx = joint->getJointIndex();
+            Eigen::Array2f limits = joint->getPositionLimits();
+            if (_velocity_button->isChecked()) {
+                limits = joint->getVelocityLimits();
+            }
+            target[i] = utils::fromTickValue(_sliders.at((unsigned long) joint_idx)->value(), limits[0], limits[1]);
+        }
+    }
+    if (_velocity_button->isChecked()) {
+        _current_velocity_controller->setTargetVelocity(target);
+    } else {
+        _current_position_controller->setTargetPosition(target);
+    }
 }
 
 //////////////////////////////////////// Box2DWorldView ////////////////////////////////////////
@@ -646,14 +945,20 @@ void sim_env::Box2DWorldViewer::createUI() {
 
 QWidget* sim_env::Box2DWorldViewer::createBottomBar() {
     QTabWidget* tab_widget = new QTabWidget(_root_widget.get());
-    QGroupBox* bottom_group = new QGroupBox("Dynamics model control");
-    tab_widget->addTab(bottom_group, "Simulation control");
-    QHBoxLayout* bottom_group_layout = new QHBoxLayout();
-    QPushButton* control_button = new QPushButton("Run simulation", bottom_group);
-    control_button->setCheckable(true);
-    bottom_group_layout->addWidget(control_button);
-    bottom_group->setLayout(bottom_group_layout);
-    QObject::connect(control_button, SIGNAL(clicked(bool)), _simulation_controller.get(), SLOT(triggerSimulation(bool)));
+    // build simulation control view
+    QGroupBox* simulation_control_view = new QGroupBox("Dynamics model control");
+    tab_widget->addTab(simulation_control_view, "Simulation control");
+    QHBoxLayout* sim_control_layout = new QHBoxLayout();
+    QPushButton* sim_control_button = new QPushButton("Run simulation", simulation_control_view);
+    sim_control_button->setCheckable(true);
+    sim_control_layout->addWidget(sim_control_button);
+    simulation_control_view->setLayout(sim_control_layout);
+    QObject::connect(sim_control_button, SIGNAL(clicked(bool)), _simulation_controller.get(), SLOT(triggerSimulation(bool)));
+    // create robot controller view
+    viewer::Box2DControllerView* robot_control_view = new viewer::Box2DControllerView();
+    QObject::connect(_world_view, SIGNAL(objectSelected(sim_env::ObjectWeakPtr)),
+                     robot_control_view, SLOT(setCurrentObject(sim_env::ObjectWeakPtr)));
+    tab_widget->addTab(robot_control_view, "Robot control");
     return tab_widget;
 }
 
@@ -667,3 +972,4 @@ QWidget* sim_env::Box2DWorldViewer::createSideBar() {
               SLOT(refreshView()));
     return state_view;
 }
+

@@ -317,7 +317,8 @@ Box2DJoint::Box2DJoint(const Box2DJointDescription &joint_desc, Box2DLinkPtr lin
     _name = joint_desc.name;
     _link_a = link_a;
     _link_b = link_b;
-    _index = 0;
+    _joint_index = 0;
+    _dof_index = 0;
     _object_name = object_name;
     assert(link_a->getName() == joint_desc.link_a);
     assert(link_b->getName() == joint_desc.link_b);
@@ -344,14 +345,17 @@ Box2DJoint::Box2DJoint(const Box2DJointDescription &joint_desc, Box2DLinkPtr lin
             joint_def.localAnchorB = b2Vec2(0, 0); // axis in link_b frame
             // base orientation of link_b frame relative to link_a frame
             joint_def.referenceAngle = joint_desc.axis_orientation;
-            joint_def.lowerAngle = joint_desc.limits[0];
-            joint_def.upperAngle = joint_desc.limits[1];
-            joint_def.enableLimit = joint_desc.limits.norm() > 0.0;
+            joint_def.lowerAngle = joint_desc.position_limits[0];
+            joint_def.upperAngle = joint_desc.position_limits[1];
+            joint_def.enableLimit = joint_desc.position_limits.norm() > 0.0;
             joint_def.maxMotorTorque = joint_desc.max_torque;
             joint_def.enableMotor = joint_desc.actuated;
             _joint = box2d_world->CreateJoint(&joint_def);
-            _position_limits[0] = joint_desc.limits[0];
-            _position_limits[1] = joint_desc.limits[1];
+            _position_limits[0] = joint_desc.position_limits[0];
+            _position_limits[1] = joint_desc.position_limits[1];
+            _velocity_limits[0] = joint_desc.velocity_limits[0];
+            _velocity_limits[1] = joint_desc.velocity_limits[1];
+
             // TODO what about unlimited joints?
             break;
         }
@@ -365,14 +369,16 @@ Box2DJoint::Box2DJoint(const Box2DJointDescription &joint_desc, Box2DLinkPtr lin
             joint_def.localAxisA = box2d_direction;
             joint_def.localAnchorA = box2d_axis;
             joint_def.localAnchorB = b2Vec2(0,0);
-            joint_def.lowerTranslation = world->getScale() * joint_desc.limits[0];
-            joint_def.upperTranslation = world->getScale() * joint_desc.limits[1];
-            joint_def.enableLimit = joint_desc.limits.norm() > 0.0;
+            joint_def.lowerTranslation = world->getScale() * joint_desc.position_limits[0];
+            joint_def.upperTranslation = world->getScale() * joint_desc.position_limits[1];
+            joint_def.enableLimit = joint_desc.position_limits.norm() > 0.0;
             joint_def.maxMotorForce = joint_desc.max_torque;
             joint_def.enableMotor = joint_desc.actuated;
             _joint = box2d_world->CreateJoint(&joint_def);
-            _position_limits[0] = joint_desc.limits[0];
-            _position_limits[1] = joint_desc.limits[1];
+            _position_limits[0] = joint_desc.position_limits[0];
+            _position_limits[1] = joint_desc.position_limits[1];
+            _velocity_limits[0] = joint_desc.velocity_limits[0];
+            _velocity_limits[1] = joint_desc.velocity_limits[1];
             break;
         }
     }
@@ -413,7 +419,7 @@ void Box2DJoint::resetPosition(float value, bool child_joint_override) {
     auto logger = world->getLogger();
     if (value < _position_limits[0] || value > _position_limits[1]) {
         std::stringstream ss;
-        ss << "Position " << value << " is out of limits (" << _position_limits << " for joint " << getIndex();
+        ss << "Position " << value << " is out of limits (" << _position_limits << " for joint " << getJointIndex();
         logger->logWarn(ss.str(), "[sim_env::Box2DJoint::resetPosition]");
         value = value < _position_limits[0] ? _position_limits[0] : _position_limits[1];
     }
@@ -488,11 +494,15 @@ Eigen::Array2f Box2DJoint::getPositionLimits() const {
 }
 
 Eigen::Array2f Box2DJoint::getVelocityLimits() const {
-    throw std::logic_error("[sim_env::Box2DJoint::getVelocityLimits not implemented yet");
+    return _velocity_limits;
 }
 
-unsigned int Box2DJoint::getIndex() const {
-    return _index;
+unsigned int Box2DJoint::getJointIndex() const {
+    return _joint_index;
+}
+
+unsigned int Box2DJoint::getDOFIndex() const {
+    return _dof_index;
 }
 
 Joint::JointType Box2DJoint::getJointType() const {
@@ -511,8 +521,12 @@ void Box2DJoint::setObjectName(const std::string& name) {
     _object_name = name;
 }
 
-void Box2DJoint::setIndex(unsigned int index) {
-    _index = index;
+void Box2DJoint::setJointIndex(unsigned int index) {
+    _joint_index = index;
+}
+
+void Box2DJoint::setDOFIndex(unsigned int index) {
+    _dof_index = index;
 }
 
 EntityType Box2DJoint::getType() const {
@@ -602,6 +616,7 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
     }
     _base_link = _links[obj_desc.base_link];
 
+    unsigned int base_dofs = _is_static ? 0 : 3;
     // next create joints
     for (auto &joint_desc : obj_desc.joints) {
         Box2DLinkPtr link_a = _links[joint_desc.link_a];
@@ -611,9 +626,9 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
         link_b->registerParentJoint(joint);
         _joints[joint->getName()] = joint;
         _sorted_joints.push_back(joint);
-        joint->setIndex((unsigned int)(_sorted_joints.size()) - 1);
+        joint->setJointIndex((unsigned int)(_sorted_joints.size()) - 1);
+        joint->setDOFIndex(joint->getJointIndex() + base_dofs);
     }
-    unsigned int base_dofs = _is_static ? 0 : 3;
     _num_dofs = (unsigned int) (base_dofs + _sorted_joints.size());
     // by default set all dofs active
     _active_dof_indices = getDOFIndices();
@@ -908,9 +923,47 @@ unsigned int Box2DObject::getNumDOFs() const {
     return _num_dofs;
 }
 
-Box2DJointPtr Box2DObject::getJoint(unsigned int idx) {
+unsigned int Box2DObject::getNumActiveDOFs() const {
+    Eigen::VectorXi active_dofs = getActiveDOFs();
+    return (unsigned int) active_dofs.size();
+}
+
+Box2DJointPtr Box2DObject::getBox2DJoint(unsigned int idx) {
     return _sorted_joints.at(idx);
 }
+
+unsigned int Box2DObject::getNumBaseDOFs() const {
+    return _is_static ? 0 : 3;
+}
+
+JointPtr Box2DObject::getJoint(unsigned int joint_idx) {
+    if (joint_idx >= _sorted_joints.size()) {
+        return JointPtr(nullptr);
+    }
+    return _sorted_joints.at(joint_idx);
+}
+
+JointPtr Box2DObject::getJointFromDOFIndex(unsigned int dof_idx) {
+    if (dof_idx < getNumBaseDOFs()) {
+        return JointPtr(nullptr);
+    }
+    return getJoint(dof_idx - getNumBaseDOFs());
+}
+
+JointConstPtr Box2DObject::getConstJoint(unsigned int joint_idx) const {
+    if (joint_idx >= _sorted_joints.size()) {
+        return JointConstPtr(nullptr);
+    }
+    return _sorted_joints.at(joint_idx);
+}
+
+JointConstPtr Box2DObject::getConstJointFromDOFIndex(unsigned int dof_idx) const {
+    if (dof_idx < getNumBaseDOFs()) {
+        return JointPtr(nullptr);
+    }
+    return getConstJoint(dof_idx - getNumBaseDOFs());
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DRobot members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -1081,11 +1134,15 @@ void Box2DRobot::setController(ControlCallback controll_fn) {
 void Box2DRobot::commandEfforts(const Eigen::VectorXf &target) {
     // we are changing the state of Box2D objects here, so we should lock the world
     Box2DWorldLock lock(_robot_object->getBox2DWorld()->world_mutex);
+    LoggerPtr logger = getWorld()->getLogger();
+    std::stringstream ss;
+    ss << "Commanding efforts " << target.transpose();
+    logger->logDebug(ss.str(), "[sim_env::Box2DRobot::commandEfforts]");
     Eigen::VectorXi active_dofs = _robot_object->getActiveDOFs();
     for (int i = 0; i < active_dofs.size(); ++i) {
         int dof_idx = active_dofs[i];
         // check whether we have to move the base link
-        if (not isStatic() and dof_idx < 3) {
+        if (dof_idx < getNumBaseDOFs()) {
             Box2DLinkPtr base_link = _robot_object->getBox2DBaseLink();
             b2Body* body = base_link->getBody();
             switch(dof_idx) {
@@ -1112,13 +1169,36 @@ void Box2DRobot::commandEfforts(const Eigen::VectorXf &target) {
             }
         } else {
             // torque/effort for joint
-            int dof_offset = isStatic() ? 0 : 3;
-            int joint_idx = dof_idx - dof_offset;
-            assert(joint_idx > 0);
-            Box2DJointPtr joint = _robot_object->getJoint((unsigned int) joint_idx);
+            int joint_idx = dof_idx - getNumBaseDOFs();
+            assert(joint_idx >= 0);
+            Box2DJointPtr joint = _robot_object->getBox2DJoint((unsigned int) joint_idx);
             joint->setControlTorque(target[i]);
         }
     }
+}
+
+unsigned int Box2DRobot::getNumActiveDOFs() const {
+    return _robot_object->getNumActiveDOFs();
+}
+
+unsigned int Box2DRobot::getNumBaseDOFs() const {
+    return _robot_object->getNumBaseDOFs();
+}
+
+JointPtr Box2DRobot::getJoint(unsigned int joint_idx) {
+    return _robot_object->getJoint(joint_idx);
+}
+
+JointPtr Box2DRobot::getJointFromDOFIndex(unsigned int dof_idx) {
+    return _robot_object->getJointFromDOFIndex(dof_idx);
+}
+
+JointConstPtr Box2DRobot::getConstJoint(unsigned int joint_idx) const {
+    return _robot_object->getConstJoint(joint_idx);
+}
+
+JointConstPtr Box2DRobot::getConstJointFromDOFIndex(unsigned int dof_idx) const {
+    return _robot_object->getConstJointFromDOFIndex(dof_idx);
 }
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DWorld members *///////////////////////

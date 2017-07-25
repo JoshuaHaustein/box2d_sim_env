@@ -4,7 +4,7 @@ links:
     geometry:
       - [0.0, 0.0, 0.8, 0.0, 0.8, 0.2, 0.0, 0.2]
       - [0.0, 0.0, 0.4, -0.4, 0.8, 0.0]
-    mass: 1.1
+    mass: 10.1
     trans_friction: 0.1
     rot_friction: 0.1
     restitution: 1.0
@@ -47,7 +47,8 @@ joints:
     link_b: test_robot_finger_l_1
     axis: [0.1, 0.1]
     axis_orientation: 0.0
-    limits: [-1.05, 1.05]
+    position_limits: [-1.05, 1.05]
+    velocity_limits: [-10.0, 10.0]
     joint_type: revolute
     max_torque: 1.0
     actuated: True
@@ -56,7 +57,8 @@ joints:
     link_b: test_robot_finger_l_2
     axis: [0.0, 0.35]
     axis_orientation: 0.0
-    limits: [-1.05, 1.05]
+    position_limits: [-1.05, 1.05]
+    velocity_limits: [-10.0, 10.0]
     joint_type: revolute
     max_torque: 1.0
     actuated: True
@@ -66,7 +68,8 @@ joints:
     axis: [0.7, 0.1]
     axis_orientation: 0.0
     joint_type: revolute
-    limits: [-1.05, 1.05]
+    position_limits: [-1.05, 1.05]
+    velocity_limits: [-10.0, 10.0]
     max_torque: 1.0
     actuated: True
   - name: finger_r_joint_2
@@ -74,7 +77,8 @@ joints:
     link_b: test_robot_finger_r_2
     axis: [0.0, 0.35]
     axis_orientation: 0.0
-    limits: [-1.05, 1.05]
+    position_limits: [-1.05, 1.05]
+    velocity_limits: [-10.0, 10.0]
     joint_type: revolute
     max_torque: 1.0
     actuated: True

@@ -13,6 +13,8 @@
 #include <QtGui/QColor>
 #include <QtGui/QGroupBox>
 #include <QtGui/QLineEdit>
+#include <QtGui/QRadioButton>
+#include <QtGui/QPushButton>
 #include <QtGui/QSlider>
 #include <QtGui/QFormLayout>
 // stl includes
@@ -21,6 +23,11 @@
 namespace sim_env {
     namespace viewer {
       class Box2DWorldView;
+        namespace utils {
+            int toTickValue(float value, float min, float max);
+            float fromTickValue(int tick, float min, float max);
+            constexpr float LARGE_FLOATING_NUMBER = 100000.0f;
+        }
 
         ////////////////////// VIEWS OF WOLRD COMPONENTS, I.E. VISUAL ITEMS /////////////////////////
         class Box2DObjectView : public QGraphicsItem {
@@ -97,7 +104,6 @@ namespace sim_env {
             bool eventFilter(QObject* qobject, QEvent *event);
         public slots:
             void setCurrentObject(sim_env::ObjectWeakPtr object); // called by robot/object view on click
-            void setObjectState(); // called by 'set state' button
             void sliderChange(int value); // called when a slider is changed
         signals:
             void valuesChanged();
@@ -109,12 +115,42 @@ namespace sim_env {
 
             void synchView();
             void showValues();
-            int toTickValue(float value, float min, float max);
-            float fromTickValue(int tick, float min, float max);
         };
 
         class Box2DControllerView : public QGroupBox {
-            // TODO implement view that allows interaction with position/velocity controller
+            Q_OBJECT
+        public:
+            Box2DControllerView(QWidget* parent=0);
+            ~Box2DControllerView();
+
+        public slots:
+            void setCurrentObject(sim_env::ObjectWeakPtr object); // called by world view, if an object was selected
+            void sliderChange(int value); // called when a slider is changed
+            void triggerController(bool enable);
+            void triggerControllerTypeChange(bool toggled); // called when user selects position/velocity control
+        private:
+            // member functions
+            void initView();
+            void updateView();
+            void updateTarget();
+            void synchSliderValue(QSlider* slider, sim_env::JointConstPtr joint);
+            void synchTextValue(int dof_idx, sim_env::RobotPtr robot);
+            void setController();
+            // member variables
+            sim_env::RobotWeakPtr _current_robot;
+            sim_env::RobotPositionControllerPtr _current_position_controller;
+            sim_env::RobotVelocityControllerPtr _current_velocity_controller;
+            // TODO in case robots can be deleted and new robots with the same names can be readded
+            // TODO to the scene, this map may contain controllers for non-existing robots
+            std::map<std::string, sim_env::RobotPositionControllerPtr> _position_controllers;
+            std::map<std::string, sim_env::RobotVelocityControllerPtr> _velocity_controllers;
+            QPushButton* _enable_button;
+            QRadioButton* _position_button;
+            QRadioButton* _velocity_button;
+            QLineEdit* _x_edit;
+            QLineEdit* _y_edit;
+            QLineEdit* _theta_edit;
+            std::vector<QSlider*> _sliders;
         };
 
         class Box2DWorldView : public QGraphicsView {

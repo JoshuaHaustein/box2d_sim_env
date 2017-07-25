@@ -165,7 +165,8 @@ namespace sim_env{
         void setVelocity(float v) override;
         Eigen::Array2f getPositionLimits() const override;
         Eigen::Array2f getVelocityLimits() const override;
-        unsigned int getIndex() const override;
+        unsigned int getJointIndex() const override;
+        unsigned int getDOFIndex() const override;
         JointType getJointType() const override;
         std::string getName() const override;
         EntityType getType() const override;
@@ -192,7 +193,8 @@ namespace sim_env{
         void destroy(const std::shared_ptr<b2World>& b2world);
         void setName(const std::string &name) override;
         void setObjectName(const std::string& name);
-        void setIndex(unsigned int index);
+        void setJointIndex(unsigned int index);
+        void setDOFIndex(unsigned int index);
         void resetPosition(float value, bool child_joint_override);
         void setControlTorque(float value);
     private:
@@ -203,8 +205,10 @@ namespace sim_env{
         b2Joint* _joint;
         JointType _joint_type;
         bool _destroyed;
-        unsigned int _index;
+        unsigned int _joint_index;
+        unsigned int _dof_index;
         Eigen::Array2f _position_limits;
+        Eigen::Array2f _velocity_limits;
         std::string _object_name;
 
     };
@@ -224,30 +228,23 @@ namespace sim_env{
         ~Box2DObject();
 
         virtual std::string getName() const override;
-
         virtual EntityType getType() const override;
-
         virtual Eigen::Affine3f getTransform() const override;
+        virtual WorldPtr getWorld() const override;
+        virtual WorldConstPtr getConstWorld() const override;
+        Box2DWorldPtr getBox2DWorld() const;
         Eigen::Vector3f getPose() const;
         void getPose(Eigen::Vector3f& pose) const;
-
         virtual void setTransform(const Eigen::Affine3f& tf) override;
 
-        virtual WorldPtr getWorld() const override;
-
-        virtual WorldConstPtr getConstWorld() const override;
-
-        Box2DWorldPtr getBox2DWorld() const;
-
         virtual bool checkCollision(CollidableConstPtr other_object) const override;
-
         virtual bool checkCollision(const std::vector<CollidableConstPtr>& object_list) const override;
 
         virtual void setActiveDOFs(const Eigen::VectorXi& indices) override;
-
-        virtual unsigned int getNumDOFs() const override;
-
         virtual Eigen::VectorXi getActiveDOFs() const override;
+        virtual unsigned int getNumActiveDOFs() const override;
+        virtual unsigned int getNumDOFs() const override;
+        unsigned int getNumBaseDOFs() const override;
         virtual Eigen::VectorXi getDOFIndices() const override;
         virtual Eigen::VectorXf getDOFPositions(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
         virtual Eigen::ArrayX2f getDOFPositionLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
@@ -270,8 +267,13 @@ namespace sim_env{
 
         virtual void getJoints(std::vector<JointPtr>& joints) override;
         virtual void getJoints(std::vector<JointConstPtr>& joints) const override;
-        virtual JointPtr getJoint(const std::string &joint_name) override;
-        virtual JointConstPtr getConstJoint(const std::string &joint_name) const override;
+        JointPtr getJoint(const std::string &joint_name) override;
+        JointPtr getJoint(unsigned int joint_idx) override;
+        JointPtr getJointFromDOFIndex(unsigned int dof_idx) override;
+        JointConstPtr getConstJoint(const std::string &joint_name) const override;
+        JointConstPtr getConstJoint(unsigned int joint_idx) const override;
+        JointConstPtr getConstJointFromDOFIndex(unsigned int dof_idx) const override;
+
 
     protected:
         // ensure only friend classes can construct this
@@ -279,7 +281,7 @@ namespace sim_env{
         // function for desctruction. called by Box2DWorld when it is destroyed.
         void destroy(const std::shared_ptr<b2World>& b2world);
         virtual void setName(const std::string &name) override;
-        Box2DJointPtr getJoint(unsigned int idx);
+        Box2DJointPtr getBox2DJoint(unsigned int idx);
     private:
         std::string _name;
         Eigen::Affine3f _transform;
@@ -317,6 +319,7 @@ namespace sim_env{
         // DOFs
         void setActiveDOFs(const Eigen::VectorXi &indices) override;
         virtual unsigned int getNumDOFs() const override;
+        virtual unsigned int getNumActiveDOFs() const override;
         Eigen::VectorXi getActiveDOFs() const override;
         Eigen::VectorXi getDOFIndices() const override;
         Eigen::VectorXf getDOFPositions(const Eigen::VectorXi &indices=Eigen::VectorXi()) const override;
@@ -342,6 +345,17 @@ namespace sim_env{
         virtual JointConstPtr getConstJoint(const std::string &joint_name) const override;
         // control
         virtual void setController(ControlCallback control_fn) override;
+
+        unsigned int getNumBaseDOFs() const override;
+
+        JointPtr getJoint(unsigned int joint_idx) override;
+
+        JointPtr getJointFromDOFIndex(unsigned int dof_idx) override;
+
+        JointConstPtr getConstJoint(unsigned int joint_idx) const override;
+
+        JointConstPtr getConstJointFromDOFIndex(unsigned int dof_idx) const override;
+
     protected:
         // protected constructor to ensure construction is only done by friend classes
         Box2DRobot(const Box2DObjectDescription &robot_desc, Box2DWorldPtr world);
