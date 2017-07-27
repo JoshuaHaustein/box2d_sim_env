@@ -164,7 +164,11 @@ namespace sim_env{
         float getVelocity() const override;
         void setVelocity(float v) override;
         Eigen::Array2f getPositionLimits() const override;
+        void getPositionLimits(Eigen::Array2f& limits) const override;
         Eigen::Array2f getVelocityLimits() const override;
+        void getVelocityLimits(Eigen::Array2f& limits) const override;
+        Eigen::Array2f getAccelerationLimits() const;
+        void getAccelerationLimits(Eigen::Array2f& limits) const;
         unsigned int getJointIndex() const override;
         unsigned int getDOFIndex() const override;
         JointType getJointType() const override;
@@ -180,6 +184,9 @@ namespace sim_env{
         WorldConstPtr getConstWorld() const override;
         ObjectConstPtr getConstObject() const override;
         Box2DWorldPtr getBox2DWorld() const;
+
+        void getDOFInformation(DOFInformation& info) const override;
+        DOFInformation getDOFInformation() const override;
 //        Box2DObjectPtr getBox2DObject() const;
 
     protected:
@@ -209,6 +216,7 @@ namespace sim_env{
         unsigned int _dof_index;
         Eigen::Array2f _position_limits;
         Eigen::Array2f _velocity_limits;
+        Eigen::Array2f _acceleration_limits;
         std::string _object_name;
 
     };
@@ -249,10 +257,13 @@ namespace sim_env{
         virtual Eigen::VectorXf getDOFPositions(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
         virtual Eigen::ArrayX2f getDOFPositionLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
+        virtual DOFInformation getDOFInformation(unsigned int dof_index) const;
+        virtual void getDOFInformation(unsigned int dof_index, DOFInformation& info) const;
         virtual void setDOFPositions(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
 
         virtual Eigen::VectorXf getDOFVelocities(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
         virtual Eigen::ArrayX2f getDOFVelocityLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        virtual Eigen::ArrayX2f getDOFAccelerationLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
         virtual void setDOFVelocities(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
 
@@ -274,14 +285,17 @@ namespace sim_env{
         JointConstPtr getConstJoint(unsigned int joint_idx) const override;
         JointConstPtr getConstJointFromDOFIndex(unsigned int dof_idx) const override;
 
-
     protected:
         // ensure only friend classes can construct this
         Box2DObject(const Box2DObjectDescription& obj_desc, Box2DWorldPtr world);
-        // function for desctruction. called by Box2DWorld when it is destroyed.
+        // function for destruction. called by Box2DWorld when it is destroyed.
         void destroy(const std::shared_ptr<b2World>& b2world);
         virtual void setName(const std::string &name) override;
         Box2DJointPtr getBox2DJoint(unsigned int idx);
+        // these can be overwritten by Box2DRobot
+        DOFInformation _x_dof_info;
+        DOFInformation _y_dof_info;
+        DOFInformation _theta_dof_info;
     private:
         std::string _name;
         Eigen::Affine3f _transform;
@@ -294,7 +308,6 @@ namespace sim_env{
         std::vector<Box2DJointPtr> _sorted_joints; // sorted list of objects
         bool _is_static;
         bool _destroyed;
-
     };
 
     /**
@@ -320,6 +333,9 @@ namespace sim_env{
         void setActiveDOFs(const Eigen::VectorXi &indices) override;
         virtual unsigned int getNumDOFs() const override;
         virtual unsigned int getNumActiveDOFs() const override;
+        unsigned int getNumBaseDOFs() const override;
+        virtual DOFInformation getDOFInformation(unsigned int dof_index) const;
+        virtual void getDOFInformation(unsigned int dof_index, DOFInformation& info) const;
         Eigen::VectorXi getActiveDOFs() const override;
         Eigen::VectorXi getDOFIndices() const override;
         Eigen::VectorXf getDOFPositions(const Eigen::VectorXi &indices=Eigen::VectorXi()) const override;
@@ -328,6 +344,7 @@ namespace sim_env{
         Eigen::VectorXf getDOFVelocities(const Eigen::VectorXi &indices=Eigen::VectorXi()) const override;
         virtual Eigen::ArrayX2f getDOFVelocityLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
         void setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices=Eigen::VectorXi()) override;
+        virtual Eigen::ArrayX2f getDOFAccelerationLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
         bool isStatic() const override;
         // collision checking
         bool checkCollision(CollidableConstPtr other) const override;
@@ -346,7 +363,6 @@ namespace sim_env{
         // control
         virtual void setController(ControlCallback control_fn) override;
 
-        unsigned int getNumBaseDOFs() const override;
 
         JointPtr getJoint(unsigned int joint_idx) override;
 
@@ -358,7 +374,7 @@ namespace sim_env{
 
     protected:
         // protected constructor to ensure construction is only done by friend classes
-        Box2DRobot(const Box2DObjectDescription &robot_desc, Box2DWorldPtr world);
+        Box2DRobot(const Box2DRobotDescription &robot_desc, Box2DWorldPtr world);
         // destruction is issued by Box2DWorld
         void destroy(const std::shared_ptr<b2World>& b2world);
         virtual void setName(const std::string &name) override;
@@ -366,8 +382,8 @@ namespace sim_env{
         void control(float timestep);
 
     private:
-        Box2DObjectPtr _robot_object;
         bool _destroyed;
+        Box2DObjectPtr _robot_object;
         mutable std::recursive_mutex _controller_mutex; // for locks to access _controller_callback
         ControlCallback _controller_callback;
 
@@ -446,11 +462,12 @@ namespace sim_env{
 
         void eraseWorld();
         void createWorld(const Box2DEnvironmentDescription& env_desc);
-        void createNewRobot(const Box2DObjectDescription& robot_desc);
+        void createNewRobot(const Box2DRobotDescription& robot_desc);
         void createNewObject(const Box2DObjectDescription& object_desc);
         void createGround(const Eigen::Vector4f& world_bounds);
 
     };
+
 }
 
 #endif //BOX2D_SIM_ENV_BOX2DWORLD_H

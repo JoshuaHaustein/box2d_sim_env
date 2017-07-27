@@ -6,7 +6,7 @@
 #include <exception>
 #include "sim_env/Box2DWorld.h"
 #include "sim_env/Box2DWorldViewer.h"
-#include "sim_env/YamlUtils.h"
+#include "sim_env/utils/YamlUtils.h"
 #include <boost/filesystem.hpp>
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point_xy.hpp>
@@ -348,13 +348,12 @@ Box2DJoint::Box2DJoint(const Box2DJointDescription &joint_desc, Box2DLinkPtr lin
             joint_def.lowerAngle = joint_desc.position_limits[0];
             joint_def.upperAngle = joint_desc.position_limits[1];
             joint_def.enableLimit = joint_desc.position_limits.norm() > 0.0;
-            joint_def.maxMotorTorque = joint_desc.max_torque;
+            // TODO might have to transform acceleration here to torque (torque = radius x mass * acceleration)
+            // TODO might need a dynamic model of the robot to compute that -,-
+            joint_def.maxMotorTorque = std::min(std::abs(joint_desc.acceleration_limits[0]),
+                                                std::abs(joint_desc.acceleration_limits[1]));
             joint_def.enableMotor = joint_desc.actuated;
             _joint = box2d_world->CreateJoint(&joint_def);
-            _position_limits[0] = joint_desc.position_limits[0];
-            _position_limits[1] = joint_desc.position_limits[1];
-            _velocity_limits[0] = joint_desc.velocity_limits[0];
-            _velocity_limits[1] = joint_desc.velocity_limits[1];
 
             // TODO what about unlimited joints?
             break;
@@ -372,16 +371,20 @@ Box2DJoint::Box2DJoint(const Box2DJointDescription &joint_desc, Box2DLinkPtr lin
             joint_def.lowerTranslation = world->getScale() * joint_desc.position_limits[0];
             joint_def.upperTranslation = world->getScale() * joint_desc.position_limits[1];
             joint_def.enableLimit = joint_desc.position_limits.norm() > 0.0;
-            joint_def.maxMotorForce = joint_desc.max_torque;
+            // TODO might have to transform acceleration here to force (force = mass * acceleration)
+            joint_def.maxMotorForce = std::min(std::abs(joint_desc.acceleration_limits[0]),
+                                                std::abs(joint_desc.acceleration_limits[1]));
             joint_def.enableMotor = joint_desc.actuated;
             _joint = box2d_world->CreateJoint(&joint_def);
-            _position_limits[0] = joint_desc.position_limits[0];
-            _position_limits[1] = joint_desc.position_limits[1];
-            _velocity_limits[0] = joint_desc.velocity_limits[0];
-            _velocity_limits[1] = joint_desc.velocity_limits[1];
             break;
         }
     }
+    _position_limits[0] = joint_desc.position_limits[0];
+    _position_limits[1] = joint_desc.position_limits[1];
+    _velocity_limits[0] = joint_desc.velocity_limits[0];
+    _velocity_limits[1] = joint_desc.velocity_limits[1];
+    _acceleration_limits[0] = joint_desc.acceleration_limits[0];
+    _acceleration_limits[1] = joint_desc.acceleration_limits[1];
 }
 
 Box2DJoint::~Box2DJoint() {
@@ -493,8 +496,16 @@ Eigen::Array2f Box2DJoint::getPositionLimits() const {
     return _position_limits;
 }
 
+void Box2DJoint::getPositionLimits(Eigen::Array2f &limits) const {
+    limits = _position_limits;
+}
+
 Eigen::Array2f Box2DJoint::getVelocityLimits() const {
     return _velocity_limits;
+}
+
+void Box2DJoint::getVelocityLimits(Eigen::Array2f &limits) const {
+    limits = _velocity_limits;
 }
 
 unsigned int Box2DJoint::getJointIndex() const {
@@ -588,19 +599,41 @@ void Box2DJoint::setControlTorque(float value) {
     switch (_joint_type) {
         case JointType::Prismatic: {
             // TODO
-            throw std::logic_error("setControlTorque for pristmatic joints is not implemented yet");
+            throw std::logic_error("setControlTorque for prismatic joints is not implemented yet");
             break;
         }
         case JointType::Revolute: {
             b2RevoluteJoint* revolute_joint = static_cast<b2RevoluteJoint*>(_joint);
             revolute_joint->EnableMotor(true);
-            // TODO this is a hack. does it work?
+            // TODO this is a hack. does it work? Also how does this relate to acceleration limits??
             revolute_joint->SetMaxMotorTorque(value);
             revolute_joint->SetMotorSpeed(std::numeric_limits<float>::max());
             break;
         }
     }
 }
+
+void Box2DJoint::getDOFInformation(DOFInformation &info) const {
+    info.velocity_limits = getVelocityLimits();
+    info.position_limits = getPositionLimits();
+    info.acceleration_limits = getAccelerationLimits();
+    info.dof_index = getDOFIndex();
+}
+
+DOFInformation Box2DJoint::getDOFInformation() const {
+    DOFInformation info;
+    getDOFInformation(info);
+    return info;
+}
+
+Eigen::Array2f Box2DJoint::getAccelerationLimits() const {
+    return _acceleration_limits;
+}
+
+void Box2DJoint::getAccelerationLimits(Eigen::Array2f &limits) const {
+    limits = _acceleration_limits;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DObject members *//////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -634,6 +667,30 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
     _active_dof_indices = getDOFIndices();
     // finally initialize all links to be placed correctly (the initial pose at the origin does not matter)
     _base_link->setPose(Eigen::Vector3f(0.0f, 0.0f, 0.0f), true, true);
+    if (!_is_static) { // set dof information for base dofs
+        // by default all base dofs are unbounded
+        _x_dof_info.dof_index = 0;
+        _x_dof_info.position_limits[0] = -std::numeric_limits<float>::max();
+        _x_dof_info.position_limits[1] = std::numeric_limits<float>::max();
+        _x_dof_info.velocity_limits[0] = -std::numeric_limits<float>::max();
+        _x_dof_info.velocity_limits[1] = std::numeric_limits<float>::max();
+        _x_dof_info.acceleration_limits[0] = -std::numeric_limits<float>::max();
+        _x_dof_info.acceleration_limits[1] = std::numeric_limits<float>::max();
+        _y_dof_info.dof_index = 1;
+        _y_dof_info.position_limits[0] = -std::numeric_limits<float>::max();
+        _y_dof_info.position_limits[1] = std::numeric_limits<float>::max();
+        _y_dof_info.velocity_limits[0] = -std::numeric_limits<float>::max();
+        _y_dof_info.velocity_limits[1] = std::numeric_limits<float>::max();
+        _y_dof_info.acceleration_limits[0] = -std::numeric_limits<float>::max();
+        _y_dof_info.acceleration_limits[1] = std::numeric_limits<float>::max();
+        _theta_dof_info.dof_index = 2;
+        _theta_dof_info.position_limits[0] = -std::numeric_limits<float>::max();
+        _theta_dof_info.position_limits[1] = std::numeric_limits<float>::max();
+        _theta_dof_info.velocity_limits[0] = -std::numeric_limits<float>::max();
+        _theta_dof_info.velocity_limits[1] = std::numeric_limits<float>::max();
+        _theta_dof_info.acceleration_limits[0] = -std::numeric_limits<float>::max();
+        _theta_dof_info.acceleration_limits[1] = std::numeric_limits<float>::max();
+    }
 }
 
 Box2DObject::~Box2DObject() {
@@ -753,18 +810,41 @@ Eigen::ArrayX2f Box2DObject::getDOFPositionLimits(const Eigen::VectorXi& indices
     Eigen::ArrayX2f limits(dofs_to_retrieve.size(), 2);
     for (int i = 0; i < dofs_to_retrieve.size(); ++i) {
         int dof = dofs_to_retrieve[i];
-        if (dof < 3 and not _is_static) {
-            // TODO we could get bounds from the world here
-            limits(i, 0) = std::numeric_limits<float>::min();
-            limits(i, 1) = std::numeric_limits<float>::max();
-        } else {
-            int joint_index = _is_static ? dof : dof - 3;
-            Eigen::Array2f joint_limit = _sorted_joints.at(joint_index)->getPositionLimits();
-            limits(i, 0) = joint_limit[0];
-            limits(i, 1) = joint_limit[1];
-        }
+        assert(dof >= 0);
+        DOFInformation dof_info;
+        getDOFInformation((unsigned int) dof, dof_info);
+        limits(i, 0) = dof_info.position_limits[0];
+        limits(i, 1) = dof_info.position_limits[1];
     }
     return limits;
+}
+
+DOFInformation Box2DObject::getDOFInformation(unsigned int dof_index) const {
+    DOFInformation dof_info;
+    getDOFInformation(dof_index, dof_info);
+    return dof_info;
+}
+
+void Box2DObject::getDOFInformation(unsigned int dof_index, DOFInformation &info) const {
+    if (dof_index < getNumBaseDOFs()) {
+        switch (dof_index) {
+            case 0: {
+                info = _x_dof_info;
+                break;
+            }
+            case 1: {
+                info = _y_dof_info;
+                break;
+            }
+            case 2: {
+                info = _theta_dof_info;
+                break;
+            }
+        }
+    } else {
+        JointConstPtr joint = getConstJointFromDOFIndex(dof_index);
+        joint->getDOFInformation(info);
+    }
 }
 
 void Box2DObject::setDOFPositions(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
@@ -815,7 +895,37 @@ Eigen::VectorXf Box2DObject::getDOFVelocities(const Eigen::VectorXi &indices) co
 }
 
 Eigen::ArrayX2f Box2DObject::getDOFVelocityLimits(const Eigen::VectorXi& indices) const {
-    throw std::logic_error("Box2DObject::getDOFVelocityLimits is not implemented yet ");
+    Eigen::VectorXi dofs_to_retrieve = indices;
+    if (dofs_to_retrieve.size() == 0) {
+        dofs_to_retrieve = _active_dof_indices;
+    }
+    Eigen::ArrayX2f limits(dofs_to_retrieve.size(), 2);
+    for (int i = 0; i < dofs_to_retrieve.size(); ++i) {
+        int dof = dofs_to_retrieve[i];
+        assert(dof >= 0);
+        DOFInformation dof_info;
+        getDOFInformation((unsigned int) dof, dof_info);
+        limits(i, 0) = dof_info.velocity_limits[0];
+        limits(i, 1) = dof_info.velocity_limits[1];
+    }
+    return limits;
+}
+
+Eigen::ArrayX2f Box2DObject::getDOFAccelerationLimits(const Eigen::VectorXi &indices) const {
+    Eigen::VectorXi dofs_to_retrieve = indices;
+    if (dofs_to_retrieve.size() == 0) {
+        dofs_to_retrieve = _active_dof_indices;
+    }
+    Eigen::ArrayX2f limits(dofs_to_retrieve.size(), 2);
+    for (int i = 0; i < dofs_to_retrieve.size(); ++i) {
+        int dof = dofs_to_retrieve[i];
+        assert(dof >= 0);
+        DOFInformation dof_info;
+        getDOFInformation((unsigned int) dof, dof_info);
+        limits(i, 0) = dof_info.acceleration_limits[0];
+        limits(i, 1) = dof_info.acceleration_limits[1];
+    }
+    return limits;
 }
 
 void Box2DObject::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
@@ -964,14 +1074,27 @@ JointConstPtr Box2DObject::getConstJointFromDOFIndex(unsigned int dof_idx) const
     return getConstJoint(dof_idx - getNumBaseDOFs());
 }
 
+
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DRobot members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
-Box2DRobot::Box2DRobot(const Box2DObjectDescription &robot_desc, Box2DWorldPtr world):_destroyed(false) {
+Box2DRobot::Box2DRobot(const Box2DRobotDescription &robot_desc, Box2DWorldPtr world):_destroyed(false) {
     // A robot is essentially an actuated object. Rather than implementing
     // the same functionalities twice (for object and robot), we use composition here.
     // Also we do not wanna have diamond inheritance
-    _robot_object = Box2DObjectPtr(new Box2DObject(robot_desc, world));
+    _robot_object = Box2DObjectPtr(new Box2DObject(robot_desc.object_description, world));
+    if (not isStatic()) {
+        // info on robot x dof
+        _robot_object->_x_dof_info.velocity_limits = robot_desc.translational_velocity_limits;
+        _robot_object->_x_dof_info.acceleration_limits = robot_desc.translational_acceleration_limits;
+        // info on robot y dof
+        _robot_object->_y_dof_info.velocity_limits = robot_desc.translational_velocity_limits;
+        _robot_object->_y_dof_info.acceleration_limits = robot_desc.translational_acceleration_limits;
+        // info on robot orientation dof
+        _robot_object->_theta_dof_info.velocity_limits = robot_desc.rotational_velocity_limits;
+        _robot_object->_theta_dof_info.acceleration_limits = robot_desc.rotational_acceleration_limits;
+    }
 }
 
 Box2DRobot::~Box2DRobot() {
@@ -1027,6 +1150,10 @@ Eigen::VectorXf Box2DRobot::getDOFVelocities(const Eigen::VectorXi &indices) con
 
 Eigen::ArrayX2f Box2DRobot::getDOFVelocityLimits(const Eigen::VectorXi& indices) const {
     return _robot_object->getDOFVelocityLimits(indices);
+}
+
+Eigen::ArrayX2f Box2DRobot::getDOFAccelerationLimits(const Eigen::VectorXi &indices) const {
+    return _robot_object->getDOFAccelerationLimits(indices);
 }
 
 void Box2DRobot::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
@@ -1139,6 +1266,7 @@ void Box2DRobot::commandEfforts(const Eigen::VectorXf &target) {
     ss << "Commanding efforts " << target.transpose();
     logger->logDebug(ss.str(), "[sim_env::Box2DRobot::commandEfforts]");
     Eigen::VectorXi active_dofs = _robot_object->getActiveDOFs();
+    float scale = _robot_object->getBox2DWorld()->getScale();
     for (int i = 0; i < active_dofs.size(); ++i) {
         int dof_idx = active_dofs[i];
         // check whether we have to move the base link
@@ -1148,12 +1276,18 @@ void Box2DRobot::commandEfforts(const Eigen::VectorXf &target) {
             switch(dof_idx) {
                 case 0: {
                     // force in x
-                    body->ApplyForceToCenter(b2Vec2(target[i], 0.0f), true);
+                    ss.str("");
+                    ss << "Applying force in x direction: " << scale * target[i];
+                    logger->logDebug(ss.str());
+                    body->ApplyForceToCenter(b2Vec2(scale * target[i], 0.0f), true);
                     break;
                 }
                 case 1: {
                     // force in y
-                    body->ApplyForceToCenter(b2Vec2(target[i], 0.0f), true);
+                    ss.str("");
+                    ss << "Applying force in y direction: " << scale * target[i];
+                    logger->logDebug(ss.str());
+                    body->ApplyForceToCenter(b2Vec2(0.0f, scale * target[i]), true);
                     break;
                 }
                 case 2: {
@@ -1164,7 +1298,6 @@ void Box2DRobot::commandEfforts(const Eigen::VectorXf &target) {
                 default: {
                     // impossible case
                     throw std::logic_error("[sim_env::Box2DRobot::commandEfforts] Encountered an impossible state.");
-                    break;
                 }
             }
         } else {
@@ -1200,6 +1333,16 @@ JointConstPtr Box2DRobot::getConstJoint(unsigned int joint_idx) const {
 JointConstPtr Box2DRobot::getConstJointFromDOFIndex(unsigned int dof_idx) const {
     return _robot_object->getConstJointFromDOFIndex(dof_idx);
 }
+
+DOFInformation Box2DRobot::getDOFInformation(unsigned int dof_index) const {
+    return _robot_object->getDOFInformation(dof_index);
+}
+
+void Box2DRobot::getDOFInformation(unsigned int dof_index, DOFInformation &info) const {
+    _robot_object->getDOFInformation(dof_index, info);
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DWorld members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -1369,7 +1512,7 @@ void Box2DWorld::createNewObject(const Box2DObjectDescription &object_desc) {
     _objects[object->getName()] = object;
 }
 
-void Box2DWorld::createNewRobot(const Box2DObjectDescription &robot_desc) {
+void Box2DWorld::createNewRobot(const Box2DRobotDescription &robot_desc) {
     Box2DRobotPtr robot(new Box2DRobot(robot_desc, shared_from_this()));
     if (_robots.count(robot->getName())) {
         std::string new_name(robot->getName());

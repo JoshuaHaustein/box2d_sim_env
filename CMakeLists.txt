@@ -66,6 +66,7 @@ set(SOURCE_FILES
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
  include_directories(include
+         ${sim_env_INCLUDE_DIRS}
          ${Eigen_INCLUDE_DIRS}
          ${catkin_INCLUDE_DIRS}
          ${Boost_INCLUDE_DIRS}
@@ -98,7 +99,7 @@ add_executable(box2d_sim_env_manual_test tests/test_manual.cpp)
 
 target_link_libraries(box2d_sim_env_manual_test
         box2d_sim_env
-        sim_env
+        ${sim_env_LIBRARIES}
         ${catkin_LIBRARIES}
         ${Boost_LIBRARIES}
         yaml-cpp

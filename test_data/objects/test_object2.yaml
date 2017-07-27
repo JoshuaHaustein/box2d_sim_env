@@ -24,6 +24,6 @@ joints:
     axis_orientation: 0.0
     position_limits: [-1.57, 1.57]
     velocity_limits: [-10.0, 10.0]
-    max_torque: 0.2
+    acceleration_limits: [-1.0, 1.0]
     joint_type: revolute
     actuated: False

@@ -1,4 +1,9 @@
 name: test_robot
+base_actuation:
+  translational_velocity_limits: [-10.0, 10.0]
+  translational_acceleration_limits: [-2, 2]
+  rotational_velocity_limits: [-3.14, 3.14]
+  rotational_acceleration_limits: [-1.4, 1.4]
 links:
   - name: test_robot_base
     geometry:
@@ -49,8 +54,8 @@ joints:
     axis_orientation: 0.0
     position_limits: [-1.05, 1.05]
     velocity_limits: [-10.0, 10.0]
+    acceleration_limits: [-1.0, 1.0]
     joint_type: revolute
-    max_torque: 1.0
     actuated: True
   - name: finger_l_joint_2
     link_a: test_robot_finger_l_1
@@ -59,6 +64,7 @@ joints:
     axis_orientation: 0.0
     position_limits: [-1.05, 1.05]
     velocity_limits: [-10.0, 10.0]
+    acceleration_limits: [-1.0, 1.0]
     joint_type: revolute
     max_torque: 1.0
     actuated: True
@@ -70,6 +76,7 @@ joints:
     joint_type: revolute
     position_limits: [-1.05, 1.05]
     velocity_limits: [-10.0, 10.0]
+    acceleration_limits: [-1.0, 1.0]
     max_torque: 1.0
     actuated: True
   - name: finger_r_joint_2
@@ -79,6 +86,7 @@ joints:
     axis_orientation: 0.0
     position_limits: [-1.05, 1.05]
     velocity_limits: [-10.0, 10.0]
+    acceleration_limits: [-1.0, 1.0]
     joint_type: revolute
     max_torque: 1.0
     actuated: True

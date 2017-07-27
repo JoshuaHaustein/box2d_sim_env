@@ -7,7 +7,7 @@
 
 #include <string>
 #include <vector>
-#include "sim_env/YamlUtils.h"
+#include "sim_env/utils/YamlUtils.h"
 #include <Eigen/Dense>
 #include <yaml-cpp/yaml.h>
 #include <boost/filesystem/path.hpp>
@@ -31,8 +31,8 @@ namespace sim_env {
         Eigen::Vector2f axis;
         Eigen::Vector2f position_limits;
         Eigen::Vector2f velocity_limits;
+        Eigen::Vector2f acceleration_limits;
         std::string joint_type;
-        float max_torque;
         bool actuated;
         float axis_orientation;
     };
@@ -45,6 +45,14 @@ namespace sim_env {
         bool is_static;
     };
 
+    struct Box2DRobotDescription {
+        Box2DObjectDescription object_description;
+        Eigen::Vector2f translational_velocity_limits;
+        Eigen::Vector2f translational_acceleration_limits;
+        Eigen::Vector2f rotational_velocity_limits;
+        Eigen::Vector2f rotational_acceleration_limits;
+    };
+
     struct Box2DStateDescription {
         Eigen::VectorXf configuration;
         Eigen::VectorXf velocity;
@@ -54,9 +62,19 @@ namespace sim_env {
         float scale;
         Eigen::Vector4f world_bounds;
         std::map<std::string, Box2DStateDescription> states;
-        std::vector<Box2DObjectDescription> robots;
+        std::vector<Box2DRobotDescription> robots;
         std::vector<Box2DObjectDescription> objects;
     };
+
+    static std::string resolveFileName(const std::string& file_name, const boost::filesystem::path& root_path) {
+        boost::filesystem::path object_path(file_name);
+        std::string return_value(file_name);
+        if (!object_path.is_absolute()) {
+            object_path = boost::filesystem::canonical(object_path, root_path);
+            return_value = object_path.string();
+        }
+        return return_value;
+    }
 
     static void parseObjectDescriptions(const YAML::Node& node, const boost::filesystem::path& root_path,
                                  std::vector<Box2DObjectDescription>& obj_descs) {
@@ -68,18 +86,40 @@ namespace sim_env {
             }
             std::string object_file = yaml_entry["filename"].as<std::string>();
             // first check whether we have a relative path or not, if so resolve it
-            boost::filesystem::path object_path(object_file);
-            if (!object_path.is_absolute()) {
-                object_path = boost::filesystem::canonical(object_path, root_path);
-                object_file = object_path.string();
-            }
+            object_file = resolveFileName(object_file, root_path);
             // now load the object
             YAML::Node object_node = YAML::LoadFile(object_file);
             Box2DObjectDescription object_desc = object_node.as<Box2DObjectDescription>();
             if (object_name.size() > 0) {
                 object_desc.name = object_name;
             }
+            if (yaml_entry["static"]) {
+                object_desc.is_static = yaml_entry["static"].as<bool>();
+            } else {
+                object_desc.is_static = false;
+            }
             obj_descs.push_back(object_desc);
+        }
+    }
+
+    static void parseRobotDescriptions(const YAML::Node& node, const boost::filesystem::path& root_path,
+                                std::vector<Box2DRobotDescription>& robot_descs){
+        // run over each robot description
+        for (auto yaml_entry : node) {
+            std::string robot_name;
+            if (yaml_entry["name"]) {
+                robot_name = yaml_entry["name"].as<std::string>();
+            }
+            std::string robot_file = yaml_entry["filename"].as<std::string>();
+            // first check whether we have a relative path or not, if so resolve it
+            robot_file = resolveFileName(robot_file, root_path);
+            // now load the robot
+            YAML::Node robot_node = YAML::LoadFile(robot_file);
+            Box2DRobotDescription robot_desc = robot_node.as<Box2DRobotDescription>();
+            if (robot_name.size() > 0) {
+                robot_desc.object_description.name = robot_name;
+            }
+            robot_descs.push_back(robot_desc);
         }
     }
 
@@ -102,7 +142,7 @@ namespace sim_env {
             ed.world_bounds << 0.0f, 0.0f, 0.0f, 0.0f;
             logger->logWarn("No world bounds specified. Using default world bounds.", "sim_env/Box2DIOUtils.h");
         }
-        parseObjectDescriptions(node["robots"], root_path, ed.robots);
+        parseRobotDescriptions(node["robots"], root_path, ed.robots);
         parseObjectDescriptions(node["objects"], root_path, ed.objects);
         for (auto yaml_state : node["states"]) {
             std::string object_name = yaml_state["name"].as<std::string>();
@@ -177,7 +217,7 @@ namespace YAML {
             node["axis"] = jd.axis;
             node["position_limits"] = jd.position_limits;
             node["velocity_limits"] = jd.velocity_limits;
-            node["max_torque"] = jd.max_torque;
+            node["acceleration_limits"] = jd.acceleration_limits;
             node["actuated"] = jd.actuated;
             node["joint_type"] = jd.joint_type;
             node["axis_orientation"] = jd.axis_orientation;
@@ -194,7 +234,7 @@ namespace YAML {
             ld.axis = node["axis"].as<Eigen::Vector2f>();
             ld.position_limits = node["position_limits"].as<Eigen::Vector2f>();
             ld.velocity_limits = node["velocity_limits"].as<Eigen::Vector2f>();
-            ld.max_torque = node["max_torque"].as<float>();
+            ld.acceleration_limits = node["acceleration_limits"].as<Eigen::Vector2f>();
             ld.actuated = node["actuated"].as<bool>();
             return true;
         }
@@ -226,11 +266,6 @@ namespace YAML {
             const YAML::Node& joints_node = node["joints"];
             for (YAML::const_iterator iter = joints_node.begin(); iter!= joints_node.end(); iter++) {
                 od.joints.push_back(iter->as<sim_env::Box2DJointDescription>());
-            }
-            if (node["static"]) {
-                od.is_static = true;
-            } else {
-                od.is_static = false;
             }
             // finally verify that we have a sane kinematic structure
             std::string base_link_name;
@@ -287,6 +322,36 @@ namespace YAML {
                         base_link_name = link_desc.name;
                     }
                 }
+            }
+            return true;
+        }
+    };
+
+    template<>
+    struct convert<sim_env::Box2DRobotDescription> {
+        static Node encode(const sim_env::Box2DRobotDescription &rd) {
+            Node node;
+            node["object_description"] = rd.object_description;
+            Node base_actuation_node;
+            base_actuation_node["translational_velocity_limits"] = rd.translational_velocity_limits;
+            base_actuation_node["translational_acceleration_limits"] = rd.translational_acceleration_limits;
+            base_actuation_node["rotational_velocity_limits"] = rd.rotational_velocity_limits;
+            base_actuation_node["rotational_acceleration_limits"] = rd.rotational_acceleration_limits;
+            node["base_actuation"] = base_actuation_node;
+            return node;
+        }
+
+        static bool decode(const Node &node, sim_env::Box2DRobotDescription &rd) {
+            rd.object_description = node.as<sim_env::Box2DObjectDescription>();
+            if (node["base_actuation"]) {
+                Node base_actuation_node = node["base_actuation"];
+                rd.object_description.is_static = false;
+                rd.rotational_acceleration_limits = base_actuation_node["rotational_acceleration_limits"].as<Eigen::Vector2f>();
+                rd.rotational_velocity_limits = base_actuation_node["rotational_velocity_limits"].as<Eigen::Vector2f>();
+                rd.translational_acceleration_limits = base_actuation_node["translational_acceleration_limits"].as<Eigen::Vector2f>();
+                rd.translational_velocity_limits = base_actuation_node["translational_velocity_limits"].as<Eigen::Vector2f>();
+            } else {
+                rd.object_description.is_static = true;
             }
             return true;
         }
