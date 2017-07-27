@@ -93,18 +93,27 @@ namespace sim_env {
         };
 
         ////////////////////// QT Widgets ////////////////////////
+        class LineEditChangeDetector : public QObject {
+            Q_OBJECT
+        public:
+            LineEditChangeDetector(QObject* parent=0);
+            ~LineEditChangeDetector();
+        signals:
+            void valueChanged(QLineEdit* line_edit);
+        protected:
+            bool eventFilter(QObject* qobject, QEvent* event);
+        };
+
         class Box2DObjectStateView : public QGroupBox {
             Q_OBJECT
         public:
             Box2DObjectStateView(QWidget* parent=0);
             virtual ~Box2DObjectStateView();
 
-        protected:
-            // we use this event filter to capture enter presses on the text boxes
-            bool eventFilter(QObject* qobject, QEvent *event);
         public slots:
             void setCurrentObject(sim_env::ObjectWeakPtr object); // called by robot/object view on click
             void sliderChange(int value); // called when a slider is changed
+            void lineEditChange(QLineEdit* line_edit); // called when a line edit is changed
         signals:
             void valuesChanged();
         private:
@@ -112,6 +121,7 @@ namespace sim_env {
             std::vector<QLineEdit*> _object_pose_edits;
             std::vector<QSlider*> _joint_position_sliders;
             QFormLayout* _form_layout;
+            LineEditChangeDetector* _line_edit_change_detector;
 
             void synchView();
             void showValues();
@@ -126,6 +136,7 @@ namespace sim_env {
         public slots:
             void setCurrentObject(sim_env::ObjectWeakPtr object); // called by world view, if an object was selected
             void sliderChange(int value); // called when a slider is changed
+            void lineEditChange(QLineEdit* line_edit); // called when a line edit text was changed
             void triggerController(bool enable);
             void triggerControllerTypeChange(bool toggled); // called when user selects position/velocity control
         private:
@@ -151,6 +162,7 @@ namespace sim_env {
             QLineEdit* _y_edit;
             QLineEdit* _theta_edit;
             std::vector<QSlider*> _sliders;
+            LineEditChangeDetector* _line_edit_change_detector;
         };
 
         class Box2DWorldView : public QGraphicsView {

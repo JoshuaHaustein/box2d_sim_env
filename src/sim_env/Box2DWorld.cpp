@@ -69,10 +69,11 @@ Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world,
         _body->CreateFixture(&fixture_def);
     }
     // Finally create a friction joint between this link and the ground plane
+    // TODO we probably don't want friction between the ground and fingers -> make friction optional
     float gravity = world->getGravity();
     b2FrictionJointDef friction_joint_def;
     friction_joint_def.localAnchorA.SetZero();
-    friction_joint_def.localAnchorB.SetZero();
+    friction_joint_def.localAnchorB = _body->GetLocalCenter();
     friction_joint_def.bodyA = world->getGroundBody();
     friction_joint_def.bodyB = _body;
     friction_joint_def.collideConnected = false;

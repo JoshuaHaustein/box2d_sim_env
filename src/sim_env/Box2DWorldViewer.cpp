@@ -230,10 +230,38 @@ void sim_env::viewer::Box2DFrameView::paint(QPainter* painter, const QStyleOptio
     painter->setPen(original_pen);
 }
 
+//////////////////////////////////////// LineEditChangeDetector ////////////////////////////////////////
+sim_env::viewer::LineEditChangeDetector::LineEditChangeDetector(QObject *parent):QObject(parent) {
+}
+
+sim_env::viewer::LineEditChangeDetector::~LineEditChangeDetector() {
+}
+
+bool sim_env::viewer::LineEditChangeDetector::eventFilter(QObject *qobject, QEvent *event) {
+    // we are only interested in key-press and focus-out events
+    if (event->type() != QEvent::FocusOut and event->type() != QEvent::KeyPress) {
+        return false;
+    } else if (event->type() == QEvent::KeyPress) {
+        QKeyEvent *key_event = static_cast<QKeyEvent *>(event);
+        // we are only reacting when the key enter was pressed
+        if (key_event->key() != Qt::Key_Enter) {
+            return false;
+        }
+    }
+    QLineEdit* line_edit = dynamic_cast<QLineEdit*>(qobject);
+    if (line_edit) {
+        // notify all listeners
+        emit(valueChanged(line_edit));
+    }
+    return false;
+}
 //////////////////////////////////////// Box2DObjectStateView ////////////////////////////////////////
 sim_env::viewer::Box2DObjectStateView::Box2DObjectStateView(QWidget *parent):QGroupBox(parent) {
     setTitle("Selected object state");
     _form_layout = new QFormLayout();
+    _line_edit_change_detector = new LineEditChangeDetector(this);
+    QObject::connect(_line_edit_change_detector, SIGNAL(valueChanged(QLineEdit*)),
+                     this, SLOT(lineEditChange(QLineEdit*)));
     setLayout(_form_layout);
 }
 
@@ -259,17 +287,17 @@ void sim_env::viewer::Box2DObjectStateView::synchView() {
     if (_object_pose_edits.size() != 3) {
         // create edit for x value
         QLineEdit* x_edit = new QLineEdit();
-        x_edit->installEventFilter(this);
+        x_edit->installEventFilter(_line_edit_change_detector);
         _form_layout->addRow("x:", x_edit);
         _object_pose_edits.push_back(x_edit);
         // create edit for y value
         QLineEdit* y_edit = new QLineEdit();
-        y_edit->installEventFilter(this);
+        y_edit->installEventFilter(_line_edit_change_detector);
         _form_layout->addRow("y:", y_edit);
         _object_pose_edits.push_back(y_edit);
         // create edit for theta value
         QLineEdit* theta_edit = new QLineEdit();
-        theta_edit->installEventFilter(this);
+        theta_edit->installEventFilter(_line_edit_change_detector);
         _form_layout->addRow("theta:", theta_edit);
         _object_pose_edits.push_back(theta_edit);
     }
@@ -357,24 +385,14 @@ void sim_env::viewer::Box2DObjectStateView::sliderChange(int value) {
     }
 }
 
-bool sim_env::viewer::Box2DObjectStateView::eventFilter(QObject* qobject, QEvent* event) {
-    // we are only interested in key-press and focus-out events
-    if (event->type() != QEvent::FocusOut and event->type() != QEvent::KeyPress) {
-        return false;
-    } else if (event->type() == QEvent::KeyPress) {
-        QKeyEvent *key_event = static_cast<QKeyEvent *>(event);
-        // we are only reacting when the key enter was pressed
-        if (key_event->key() != Qt::Key_Enter) {
-            return false;
-        }
-    }
+void sim_env::viewer::Box2DObjectStateView::lineEditChange(QLineEdit *line_edit) {
     // we do not need to do anything, if we do not have an object
     if (_current_object.expired()) {
-        return false;
+        return;
     }
-    // now we are sure, we have a valid event and an object, so check which text box is the source
+    // now we are sure we have a valid object, so check which text box is the source
     for (size_t i = 0; i < _object_pose_edits.size(); ++i) {
-        if (_object_pose_edits.at(i) == qobject) { // check whether text box i is the source of the event
+        if (_object_pose_edits.at(i) == line_edit) { // check whether text box i is the source of the event
             // if so set the respective coordinate
             ObjectPtr object = _current_object.lock();
             Eigen::Affine3f tf = object->getTransform();
@@ -397,10 +415,9 @@ bool sim_env::viewer::Box2DObjectStateView::eventFilter(QObject* qobject, QEvent
                 logger->logErr("Could not parse floating number value provided by user.",
                                "[sim_env::viewer::Box2DObjectStateView::textChange]");
             }
-            return false; // there is always just one source, so we can safely return
+            return; // there is always just one source, so we can safely return
         }
     }
-    return false; // we didn't handle this event at all, it's not our problem
 }
 
 void sim_env::viewer::Box2DObjectStateView::setCurrentObject(sim_env::ObjectWeakPtr object) {
@@ -420,7 +437,10 @@ sim_env::viewer::Box2DControllerView::~Box2DControllerView() {
 }
 
 void sim_env::viewer::Box2DControllerView::sliderChange(int value) {
-    // TODO also need to have a callback for changes in text fields
+    updateTarget();
+}
+
+void sim_env::viewer::Box2DControllerView::lineEditChange(QLineEdit *line_edit) {
     updateTarget();
 }
 
@@ -486,6 +506,12 @@ void sim_env::viewer::Box2DControllerView::initView() {
     grid_layout->addWidget(_y_edit, 2, 2);
     grid_layout->addWidget(_theta_edit, 2, 3);
     setEnabled(false);
+    _line_edit_change_detector = new LineEditChangeDetector(this);
+    QObject::connect(_line_edit_change_detector, SIGNAL(valueChanged(QLineEdit*)),
+                     this, SLOT(lineEditChange(QLineEdit*)));
+    _x_edit->installEventFilter(_line_edit_change_detector);
+    _y_edit->installEventFilter(_line_edit_change_detector);
+    _theta_edit->installEventFilter(_line_edit_change_detector);
 }
 
 void sim_env::viewer::Box2DControllerView::updateView() {
