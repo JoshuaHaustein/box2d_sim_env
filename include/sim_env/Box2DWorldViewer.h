@@ -114,16 +114,23 @@ namespace sim_env {
             void setCurrentObject(sim_env::ObjectWeakPtr object); // called by robot/object view on click
             void sliderChange(int value); // called when a slider is changed
             void lineEditChange(QLineEdit* line_edit); // called when a line edit is changed
+            void setViewMode(bool enable_edit); // called when enable button changes its state
+            void stateUpdate(); // called when the world state has changed, i.e. the current's object state may be different
         signals:
-            void valuesChanged();
+            void newUserState();
         private:
             sim_env::ObjectWeakPtr _current_object;
             std::vector<QLineEdit*> _object_pose_edits;
             std::vector<QSlider*> _joint_position_sliders;
+            std::vector<QLineEdit*> _object_velocity_edits;
+            std::vector<QSlider*> _joint_velocity_sliders;
             QFormLayout* _form_layout;
+            QPushButton* _mode_button;
             LineEditChangeDetector* _line_edit_change_detector;
 
+            void createLineEdits(ObjectPtr object);
             void synchView();
+            void setSliderValue(QSlider* slider, float value, float min_value, float max_value);
             void showValues();
         };
 
@@ -185,6 +192,7 @@ namespace sim_env {
             void refreshView();
         signals:
             void objectSelected(sim_env::ObjectWeakPtr object);
+            void refreshTick();
         protected:
             void setSelectedObject(sim_env::ObjectWeakPtr object);
             void wheelEvent(QWheelEvent *event) override;

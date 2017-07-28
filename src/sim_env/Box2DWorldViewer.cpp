@@ -263,106 +263,22 @@ sim_env::viewer::Box2DObjectStateView::Box2DObjectStateView(QWidget *parent):QGr
     QObject::connect(_line_edit_change_detector, SIGNAL(valueChanged(QLineEdit*)),
                      this, SLOT(lineEditChange(QLineEdit*)));
     setLayout(_form_layout);
+    _mode_button = new QPushButton("View");
+    _mode_button->setCheckable(true);
+    _form_layout->addRow("View Mode:", _mode_button);
+    QObject::connect(_mode_button, SIGNAL(clicked(bool)), this, SLOT(setViewMode(bool)));
 }
 
 sim_env::viewer::Box2DObjectStateView::~Box2DObjectStateView() {
 }
 
-void sim_env::viewer::Box2DObjectStateView::synchView() {
-    if (_current_object.expired()) {
-        auto logger = DefaultLogger::getInstance();
-        logger->logWarn("[sim_env::viewer::Box2DObjectStateView::synchView] Could not synchronize view "
-                                "as there is no object information available.");
-        return;
-    }
-    ObjectPtr object = _current_object.lock();
-    auto logger = object->getWorld()->getLogger();
-    std::string prefix("[sim_env::viewer::Box2DObject::synchView]");
-    logger->logDebug("Synchronizing view.", prefix);
-    // show name in title bar
-    QString title("State of object ");
-    title.append(object->getName().c_str());
-    setTitle(title);
-    // ensure we have a line edit item for x,y,theta
-    if (_object_pose_edits.size() != 3) {
-        // create edit for x value
-        QLineEdit* x_edit = new QLineEdit();
-        x_edit->installEventFilter(_line_edit_change_detector);
-        _form_layout->addRow("x:", x_edit);
-        _object_pose_edits.push_back(x_edit);
-        // create edit for y value
-        QLineEdit* y_edit = new QLineEdit();
-        y_edit->installEventFilter(_line_edit_change_detector);
-        _form_layout->addRow("y:", y_edit);
-        _object_pose_edits.push_back(y_edit);
-        // create edit for theta value
-        QLineEdit* theta_edit = new QLineEdit();
-        theta_edit->installEventFilter(_line_edit_change_detector);
-        _form_layout->addRow("theta:", theta_edit);
-        _object_pose_edits.push_back(theta_edit);
-    }
-    // enable them for non static objects
-    for (auto& edit_item : _object_pose_edits) {
-        edit_item->setEnabled(not object->isStatic());
-    }
-    // now ensure we have sufficient sliders for joint values
-    int pose_dofs = object->isStatic() ? 0 : 3;
-    int num_joints = (int)object->getNumDOFs() - pose_dofs;
-    // add sliders if we need more
-    for (int i = (int)_joint_position_sliders.size(); i < num_joints; ++i) {
-        QSlider* slider = new QSlider(Qt::Orientation::Horizontal);
-        QString label("Joint %1");
-        label = label.arg(i);
-        slider->setTickInterval(100);
-        _form_layout->addRow(label, slider);
-        _joint_position_sliders.push_back(slider);
-        QObject::connect(slider, SIGNAL(valueChanged(int)), this, SLOT(sliderChange(int)));
-    }
-    // disable sliders that we do not need and ensure existing sliders are enabled
-    for (int i = 0; i < (int)_joint_position_sliders.size(); ++i) {
-        _joint_position_sliders.at((size_t)i)->setEnabled(i < num_joints);
-    }
-    logger->logDebug("View synchronized", prefix);
-    // setLayout(_form_layout);
-}
 
-void sim_env::viewer::Box2DObjectStateView::showValues() {
-    if (_current_object.expired()) {
-        auto logger = DefaultLogger::getInstance();
-        logger->logWarn("[sim_env::viewer::Box2DObjectStateView::showValues] Could not synchronize view "
-                                "as there is no object information available.");
-        return;
-    }
-    ObjectPtr object = _current_object.lock();
-    Eigen::VectorXi dof_indices = object->getDOFIndices();
-    Eigen::VectorXf configuration = object->getDOFPositions(dof_indices);
-    Eigen::ArrayX2f limits = object->getDOFPositionLimits(dof_indices);
-    unsigned int base_dof_offset = 0;
-    // get pose of the object
-    Eigen::Vector3f pose;
-    Eigen::Affine3f tf = object->getTransform();
-    pose[0] = tf.translation()(0);
-    pose[1] = tf.translation()(1);
-    pose[2] = std::acos(tf.rotation()(0, 0));
-    pose[2] = tf.rotation()(1, 0) > 0.0 ? pose[2] : -pose[2];
-    // write the pose into text fields
-    for (int i = 0; i < pose.size(); ++i) {
-        QString value("%L1");
-        value = value.arg(pose[i]);
-        _object_pose_edits.at(i)->setText(value);
-    }
-    // now read the rest of the configuration
-    if (not object->isStatic()) {
-        // if the object is not static, the pose is part of the configuration
-        base_dof_offset = 3;
-    }
-    for (unsigned int i = base_dof_offset; i < configuration.size(); ++i) {
-        int tick_value = utils::toTickValue(configuration[i], limits(i, 0), limits(i, 1));
-        QSlider* slider = _joint_position_sliders.at(i - base_dof_offset);
-        slider->blockSignals(true);
-        slider->setValue(tick_value);
-        slider->blockSignals(false);
-    }
+void sim_env::viewer::Box2DObjectStateView::setCurrentObject(sim_env::ObjectWeakPtr object) {
+    _current_object = object;
+    synchView();
+    _mode_button->setChecked(false);
+    setViewMode(false);
+    showValues();
 }
 
 void sim_env::viewer::Box2DObjectStateView::sliderChange(int value) {
@@ -370,16 +286,24 @@ void sim_env::viewer::Box2DObjectStateView::sliderChange(int value) {
         return;
     }
     ObjectPtr object = _current_object.lock();
-    int dof_offset = object->isStatic() ? 0 : 3;
     for (size_t i = 0; i < _joint_position_sliders.size(); ++i) {
         if (_joint_position_sliders.at(i) == QObject::sender()) {
             Eigen::VectorXi indices(1);
-            indices[0] = i + dof_offset;
-            Eigen::ArrayX2f limits = object->getDOFPositionLimits();
+            indices[0] = (int) (i + object->getNumBaseDOFs());
+            Eigen::ArrayX2f limits = object->getDOFPositionLimits(indices);
             Eigen::VectorXf configuration(1);
-            configuration[0] = utils::fromTickValue(value, limits(indices[0], 0), limits(indices[0], 1));
+            configuration[0] = utils::fromTickValue(value, limits(0, 0), limits(0, 1));
             object->setDOFPositions(configuration, indices);
-            emit valuesChanged();
+            emit newUserState();
+            return;
+        } else if (_joint_velocity_sliders.at(i) == QObject::sender()) {
+            Eigen::VectorXi indices(1);
+            indices[0] = (int) (i + object->getNumBaseDOFs());
+            Eigen::ArrayX2f limits = object->getDOFVelocityLimits(indices);
+            Eigen::VectorXf velocity(1);
+            velocity[0] = utils::fromTickValue(value, limits(0, 0), limits(0, 1));
+            object->setDOFVelocities(velocity, indices);
+            emit newUserState();
             return;
         }
     }
@@ -387,14 +311,16 @@ void sim_env::viewer::Box2DObjectStateView::sliderChange(int value) {
 
 void sim_env::viewer::Box2DObjectStateView::lineEditChange(QLineEdit *line_edit) {
     // we do not need to do anything, if we do not have an object
-    if (_current_object.expired()) {
+    ObjectPtr object = _current_object.lock();
+    if (!object) {
         return;
     }
     // now we are sure we have a valid object, so check which text box is the source
+    assert(_object_velocity_edits.size() == _object_pose_edits.size());
     for (size_t i = 0; i < _object_pose_edits.size(); ++i) {
-        if (_object_pose_edits.at(i) == line_edit) { // check whether text box i is the source of the event
+        // check whether text box i is the source of the event
+        if (_object_pose_edits.at(i) == line_edit) {
             // if so set the respective coordinate
-            ObjectPtr object = _current_object.lock();
             Eigen::Affine3f tf = object->getTransform();
             bool conversion_ok = false;
             float value = _object_pose_edits.at(i)->text().toFloat(&conversion_ok);
@@ -412,18 +338,213 @@ void sim_env::viewer::Box2DObjectStateView::lineEditChange(QLineEdit *line_edit)
                 }
             } else {
                 auto logger = object->getWorld()->getLogger();
-                logger->logErr("Could not parse floating number value provided by user.",
+                logger->logErr("Could not parse position. Invalid floating point number.",
                                "[sim_env::viewer::Box2DObjectStateView::textChange]");
+                return;
             }
+            emit newUserState();
             return; // there is always just one source, so we can safely return
+        } else if (_object_velocity_edits.at(i) == line_edit) {
+            // the text edit should be disabled if we have a static object
+            assert(i < object->getNumBaseDOFs());
+            // if so set the respective velocity
+            Eigen::VectorXi index(1);
+            Eigen::VectorXf value(1);
+            bool conversion_ok = false;
+            value[0] = line_edit->text().toFloat(&conversion_ok);
+            if (conversion_ok) {
+                index[0] = (int) i;
+                object->setDOFVelocities(value, index);
+            } else {
+                LoggerPtr logger = object->getWorld()->getLogger();
+                logger->logErr("Could not parse velocity. Invalid floating point number.",
+                               "[sim_env::viewer::Box2DObjectStateView::textChange]");
+                return;
+            }
+            emit newUserState();
+            return;
         }
     }
 }
 
-void sim_env::viewer::Box2DObjectStateView::setCurrentObject(sim_env::ObjectWeakPtr object) {
-    _current_object = object;
-    synchView();
-    showValues();
+void sim_env::viewer::Box2DObjectStateView::setViewMode(bool enable_edit) {
+    ObjectPtr object = _current_object.lock();
+    if (not object) {
+        auto logger = DefaultLogger::getInstance();
+        logger->logWarn("[sim_env::viewer::Box2DObjectStateView::setViewMode] Could not set view mode"
+                                "as there is no object information available.");
+        return;
+    }
+    LoggerPtr logger = object->getWorld()->getLogger();
+    for (auto& line_edit : _object_pose_edits) {
+        line_edit->setEnabled(enable_edit);
+    }
+    for (auto& line_edit : _object_velocity_edits) {
+        line_edit->setEnabled(enable_edit);
+    }
+    assert(_joint_position_sliders.size() >= object->getNumDOFs() - object->getNumBaseDOFs());
+    assert(_joint_velocity_sliders.size() >= object->getNumDOFs() - object->getNumBaseDOFs());
+    for (unsigned int i = object->getNumBaseDOFs(); i < object->getNumDOFs(); ++i) {
+        _joint_position_sliders.at(i - object->getNumBaseDOFs())->setEnabled(enable_edit);
+        _joint_velocity_sliders.at(i - object->getNumBaseDOFs())->setEnabled(enable_edit);
+    }
+    if (enable_edit){
+        _mode_button->setText("Edit");
+    } else {
+        _mode_button->setText("View");
+    }
+}
+
+void sim_env::viewer::Box2DObjectStateView::stateUpdate() {
+    if (not _mode_button->isChecked()) {
+        showValues();
+    }
+}
+
+void sim_env::viewer::Box2DObjectStateView::createLineEdits(ObjectPtr object) {
+    assert (_object_velocity_edits.size() == _object_pose_edits.size());
+    if (_object_pose_edits.size() != 3) {
+        // create edit for x value
+        QLineEdit* x_edit = new QLineEdit();
+        x_edit->installEventFilter(_line_edit_change_detector);
+        _form_layout->addRow("x:", x_edit);
+        _object_pose_edits.push_back(x_edit);
+        // create edit for x velocity value
+        QLineEdit* x_vel_edit = new QLineEdit();
+        x_vel_edit->installEventFilter(_line_edit_change_detector);
+        _form_layout->addRow("x_vel:", x_vel_edit);
+        _object_velocity_edits.push_back(x_vel_edit);
+        // create edit for y value
+        QLineEdit* y_edit = new QLineEdit();
+        y_edit->installEventFilter(_line_edit_change_detector);
+        _form_layout->addRow("y:", y_edit);
+        _object_pose_edits.push_back(y_edit);
+        // create edit for y velocity value
+        QLineEdit* y_vel_edit = new QLineEdit();
+        y_vel_edit->installEventFilter(_line_edit_change_detector);
+        _form_layout->addRow("y_vel:", y_vel_edit);
+        _object_velocity_edits.push_back(y_vel_edit);
+        // create edit for theta value
+        QLineEdit* theta_edit = new QLineEdit();
+        theta_edit->installEventFilter(_line_edit_change_detector);
+        _form_layout->addRow("theta:", theta_edit);
+        _object_pose_edits.push_back(theta_edit);
+        // create edit for x velocity value
+        QLineEdit* theta_vel_edit = new QLineEdit();
+        theta_vel_edit->installEventFilter(_line_edit_change_detector);
+        _form_layout->addRow("theta_vel:", theta_vel_edit);
+        _object_velocity_edits.push_back(theta_vel_edit);
+    }
+}
+
+void sim_env::viewer::Box2DObjectStateView::synchView() {
+    if (_current_object.expired()) {
+        auto logger = DefaultLogger::getInstance();
+        logger->logWarn("[sim_env::viewer::Box2DObjectStateView::synchView] Could not synchronize view "
+                                "as there is no object information available.");
+        return;
+    }
+    ObjectPtr object = _current_object.lock();
+    auto logger = object->getWorld()->getLogger();
+    std::string prefix("[sim_env::viewer::Box2DObject::synchView]");
+    logger->logDebug("Synchronizing state view.", prefix);
+    // show name in title bar
+    QString title("State of object ");
+    title.append(object->getName().c_str());
+    setTitle(title);
+    // ensure we have a line edit item for x,y,theta
+    createLineEdits(object);
+    // enable them
+    for (auto& edit_item : _object_pose_edits) {
+        edit_item->setEnabled(true);
+    }
+    // enable velocity only for non-static objects
+    for (auto& edit_item : _object_velocity_edits) {
+        edit_item->setEnabled(not object->isStatic());
+    }
+    // now ensure we have sufficient sliders for joint values
+    int pose_dofs = object->getNumBaseDOFs();
+    int num_joints = (int)object->getNumDOFs() - pose_dofs;
+    // add sliders if we need more
+    assert(_joint_velocity_sliders.size() == _joint_position_sliders.size());
+    for (int i = (int)_joint_position_sliders.size(); i < num_joints; ++i) {
+        QSlider* slider = new QSlider(Qt::Orientation::Horizontal);
+        QSlider* vel_slider = new QSlider(Qt::Orientation::Horizontal);
+        QString label("Joint %1");
+        QString vel_label("Joint %1 vel");
+        label = label.arg(i);
+        vel_label = vel_label.arg(i);
+        slider->setTickInterval(100);
+        vel_slider->setTickInterval(100);
+        _form_layout->addRow(label, slider);
+        _form_layout->addRow(vel_label, vel_slider);
+        _joint_position_sliders.push_back(slider);
+        _joint_velocity_sliders.push_back(vel_slider);
+        QObject::connect(slider, SIGNAL(valueChanged(int)), this, SLOT(sliderChange(int)));
+        QObject::connect(vel_slider, SIGNAL(valueChanged(int)), this, SLOT(sliderChange(int)));
+    }
+    // disable sliders that we do not need and ensure existing sliders are enabled
+    for (int i = 0; i < (int)_joint_position_sliders.size(); ++i) {
+        _joint_position_sliders.at((size_t)i)->setEnabled(i < num_joints);
+        _joint_velocity_sliders.at((size_t)i)->setEnabled(i < num_joints);
+    }
+    logger->logDebug("View synchronized", prefix);
+}
+
+void sim_env::viewer::Box2DObjectStateView::setSliderValue(QSlider* slider,
+                                                           float value,
+                                                           float min_value,
+                                                           float max_value) {
+    int tick_value = utils::toTickValue(value, min_value, max_value);
+    slider->blockSignals(true);
+    slider->setValue(tick_value);
+    slider->blockSignals(false);
+}
+
+void sim_env::viewer::Box2DObjectStateView::showValues() {
+    if (_current_object.expired()) {
+        auto logger = DefaultLogger::getInstance();
+        logger->logDebug("[sim_env::viewer::Box2DObjectStateView::showValues] Could not synchronize view "
+                                "as there is no object information available.");
+        return;
+    }
+    ObjectPtr object = _current_object.lock();
+    Eigen::VectorXi dof_indices = object->getDOFIndices();
+    Eigen::VectorXf configuration = object->getDOFPositions(dof_indices);
+    Eigen::VectorXf velocities = object->getDOFVelocities(dof_indices);
+    Eigen::ArrayX2f position_limits = object->getDOFPositionLimits(dof_indices);
+    Eigen::ArrayX2f velocity_limits = object->getDOFVelocityLimits(dof_indices);
+
+    // get pose of the object
+    Eigen::Vector3f pose;
+    Eigen::Affine3f tf = object->getTransform();
+    pose[0] = tf.translation()(0);
+    pose[1] = tf.translation()(1);
+    pose[2] = std::acos(tf.rotation()(0, 0));
+    pose[2] = tf.rotation()(1, 0) > 0.0 ? pose[2] : -pose[2];
+    // write the pose into text fields
+    for (int i = 0; i < pose.size(); ++i) {
+        QString value("%L1");
+        value = value.arg(pose[i]);
+        _object_pose_edits.at(i)->setText(value);
+        value.setNum(0.0);
+        _object_velocity_edits.at(i)->setText(value);
+    }
+    // now read the rest of the configuration
+    for (int i = 0; i < object->getNumBaseDOFs(); ++i) {
+        // if the object is not static, the pose is part of the configuration
+        // and we care for its velocity in these DOFs
+        QString value("%L1");
+        value = value.arg(velocities[i]);
+        _object_velocity_edits.at(i)->setText(value);
+    }
+
+    for (unsigned int i = object->getNumBaseDOFs(); i < configuration.size(); ++i) {
+        QSlider* pos_slider = _joint_position_sliders.at(i - object->getNumBaseDOFs());
+        setSliderValue(pos_slider, configuration[i], position_limits(i, 0), position_limits(i, 1));
+        QSlider* vel_slider = _joint_velocity_sliders.at(i - object->getNumBaseDOFs());
+        setSliderValue(vel_slider, velocities[i], velocity_limits(i, 0), velocity_limits(i, 1));
+    }
 }
 
 
@@ -809,6 +930,7 @@ void sim_env::viewer::Box2DWorldView::refreshView() {
 //    logger->logDebug("REFRESHING WORLD VIEW");
     _scene->update();
     update();
+    emit refreshTick();
 }
 
 void sim_env::viewer::Box2DWorldView::setSelectedObject(sim_env::ObjectWeakPtr object) {
@@ -949,7 +1071,7 @@ void sim_env::Box2DWorldViewer::createUI() {
     QWidget* container = new QWidget();
     QHBoxLayout* container_layout = new QHBoxLayout();
     // the container shall contain our world view
-    _world_view = new viewer::Box2DWorldView(500, 500);
+    _world_view = new viewer::Box2DWorldView(800, 900);
     if (!_world.expired()) {
         _world_view->setBox2DWorld(_world.lock());
         _simulation_controller = std::unique_ptr<viewer::Box2DSimulationController>(new viewer::Box2DSimulationController(_world.lock()));
@@ -994,8 +1116,9 @@ QWidget* sim_env::Box2DWorldViewer::createSideBar() {
     viewer::Box2DObjectStateView* state_view = new viewer::Box2DObjectStateView();
     QObject::connect(_world_view, SIGNAL(objectSelected(sim_env::ObjectWeakPtr)),
             state_view, SLOT(setCurrentObject(sim_env::ObjectWeakPtr)));
-    QObject::connect(state_view, SIGNAL(valuesChanged()), _world_view,
+    QObject::connect(state_view, SIGNAL(newUserState()), _world_view,
               SLOT(refreshView()));
+    QObject::connect(_world_view, SIGNAL(refreshTick()), state_view, SLOT(stateUpdate()));
     return state_view;
 }
 
