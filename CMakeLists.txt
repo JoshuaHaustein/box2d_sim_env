@@ -53,7 +53,8 @@ add_definitions(${QT_DEFINITIONS})
 
 set(SOURCE_FILES
         src/sim_env/Box2DWorld.cpp
-        src/sim_env/Box2DWorldViewer.cpp)
+        src/sim_env/Box2DWorldViewer.cpp
+        src/sim_env/Box2DController.cpp)
 
 ## Additional Qt specific things (in case we need it)
  set (MOC_HEADERS include/sim_env/Box2DWorldViewer.h)

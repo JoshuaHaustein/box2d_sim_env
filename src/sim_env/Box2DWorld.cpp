@@ -26,6 +26,7 @@ Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world,
     _name = link_desc.name;
     _world = world;
     _object_name = object_name;
+    _local_origin_offset = b2Vec2(0.0f, 0.0f);
     // Create Box2D body
     std::shared_ptr<b2World> box2d_world = world->getRawBox2DWorld();
     b2BodyDef body_def;
@@ -121,7 +122,7 @@ EntityType Box2DLink::getType() const {
 }
 
 Eigen::Affine3f Box2DLink::getTransform() const {
-    b2Vec2 pos = _body->GetPosition();
+    b2Vec2 pos = _body->GetWorldPoint(_local_origin_offset);
     float orientation = _body->GetAngle();
     Eigen::Affine3f transform;
     Box2DWorldPtr world = getBox2DWorld();
@@ -133,7 +134,7 @@ Eigen::Affine3f Box2DLink::getTransform() const {
 }
 
 void Box2DLink::getPose(Eigen::Vector3f& pose) const {
-    b2Vec2 pos = _body->GetPosition();
+    b2Vec2 pos = _body->GetWorldPoint(_local_origin_offset);
     Box2DWorldConstPtr world = getBox2DWorld();
     float orientation = _body->GetAngle();
     pose[0] = world->getInverseScale() * pos.x;
@@ -205,7 +206,7 @@ void Box2DLink::getGeometry(std::vector<std::vector<Eigen::Vector2f> > &geometry
         if (shape->GetType() == b2Shape::Type::e_polygon) {
             b2PolygonShape* polygon_shape = static_cast<b2PolygonShape*>(shape);
             for (int32 v = 0; v < polygon_shape->GetVertexCount(); ++v) {
-                b2Vec2 point = polygon_shape->GetVertex(v);
+                b2Vec2 point = polygon_shape->GetVertex(v) - _local_origin_offset;
                 Eigen::Vector2f eigen_point(point.x, point.y);
                 polygon.push_back(eigen_point);
             }
@@ -244,7 +245,10 @@ void Box2DLink::setPose(const Eigen::Vector3f& pose, bool update_children, bool 
     // now set the new pose for this link
     b2Vec2 base_link_translation(world->getScale() * pose[0], world->getScale() * pose[1]);
     float theta = pose[2];
-    _body->SetTransform(base_link_translation, theta);
+    // we need to compute the world position of the body's origin (which might be different form the link's origin)
+    _body->SetTransform(b2Vec2(0, 0), theta);
+    b2Vec2 offset = _body->GetWorldVector(_local_origin_offset);
+    _body->SetTransform(base_link_translation - offset, theta);
     // next, update children if requested
     if (update_children) {
         int child_id = 0;
@@ -277,6 +281,75 @@ void Box2DLink::setVelocityVector(const Eigen::Vector3f& velocity, bool relative
 
     }
 }
+
+float Box2DLink::getMass() const {
+    return _body->GetMass();
+}
+
+float Box2DLink::getInertia() const {
+    Box2DWorldPtr world = getBox2DWorld();
+    float inv_scale = world->getInverseScale();
+    return  inv_scale * inv_scale * _body->GetInertia();
+}
+
+Eigen::Vector2f Box2DLink::getCenterOfMass() const {
+    Eigen::Vector2f com;
+    getCenterOfMass(com);
+    return com;
+}
+
+void Box2DLink::getCenterOfMass(Eigen::Vector2f& com) const {
+    Box2DWorldPtr world = getBox2DWorld();
+    float inv_scale = world->getInverseScale();
+    b2Vec2 box2d_com = _body->GetWorldCenter();
+    com[0] = inv_scale * box2d_com.x;
+    com[1] = inv_scale * box2d_com.y;
+}
+
+void Box2DLink::getChildJoints(std::vector<JointPtr> &child_joints) {
+    for (auto& child_joint_wptr : _child_joints) {
+        JointPtr child_joint = child_joint_wptr.lock();
+        if (!child_joint) {
+            throw std::logic_error("[sim_env::Box2DLink::getChildJoints] Child joint does not exist anymore.");
+        }
+        child_joints.push_back(child_joint);
+    }
+}
+
+void Box2DLink::getConstChildJoints(std::vector<JointConstPtr> &child_joints) const {
+    for (auto& child_joint_wptr : _child_joints) {
+        JointPtr child_joint = child_joint_wptr.lock();
+        if (!child_joint) {
+            throw std::logic_error("[sim_env::Box2DLink::getConstChildJoints] Child joint does not exist anymore.");
+        }
+        child_joints.push_back(child_joint);
+    }
+}
+
+void Box2DLink::getParentJoints(std::vector<JointPtr> &parent_joints) {
+    for (auto& parent_joint_wptr : _parent_joints) {
+        JointPtr parent_joint = parent_joint_wptr.lock();
+        if (!parent_joint) {
+            throw std::logic_error("[sim_env::Box2DLink::getParentJoints] parent joint does not exist anymore.");
+        }
+        parent_joints.push_back(parent_joint);
+    }
+}
+
+void Box2DLink::getConstParentJoints(std::vector<JointConstPtr> &parent_joints) const {
+    for (auto& parent_joint_wptr : _parent_joints) {
+        JointPtr parent_joint = parent_joint_wptr.lock();
+        if (!parent_joint) {
+            throw std::logic_error("[sim_env::Box2DLink::getConstParentJoints] parent joint does not exist anymore.");
+        }
+        parent_joints.push_back(parent_joint);
+    }
+}
+
+void Box2DLink::setOriginToCenterOfMass() {
+    _local_origin_offset = _body->GetLocalCenter();
+}
+
 ///////////////////////////////// PRIVATE //////////////////////////////////////
 void Box2DLink::propagateVelocityChange(const float& dx,
                                         const float& dy,
@@ -307,6 +380,7 @@ void Box2DLink::propagateVelocityChange(const float& dx,
         child_link->propagateVelocityChange(dx, dy, dw, parent);
     }
 }
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DJoint members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -607,8 +681,9 @@ void Box2DJoint::setControlTorque(float value) {
             b2RevoluteJoint* revolute_joint = static_cast<b2RevoluteJoint*>(_joint);
             revolute_joint->EnableMotor(true);
             // TODO this is a hack. does it work? Also how does this relate to acceleration limits??
-            revolute_joint->SetMaxMotorTorque(value);
-            revolute_joint->SetMotorSpeed(std::numeric_limits<float>::max());
+            revolute_joint->SetMaxMotorTorque(std::abs(value));
+            float sgn = value > 0.0f ? 1.0f : -1.0f;
+            revolute_joint->SetMotorSpeed(sgn * std::numeric_limits<float>::max());
             break;
         }
     }
@@ -635,6 +710,13 @@ void Box2DJoint::getAccelerationLimits(Eigen::Array2f &limits) const {
     limits = _acceleration_limits;
 }
 
+Eigen::Vector2f Box2DJoint::getAxis() const {
+    Box2DLinkPtr child_link = getChildBox2DLink();
+    Eigen::Vector3f child_pose;
+    child_link->getPose(child_pose);
+    return Eigen::Vector2f(child_pose[0], child_pose[1]);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DObject members *//////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -647,6 +729,7 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
     for (auto &link_desc : obj_desc.links) {
         Box2DLinkPtr link(new Box2DLink(link_desc, world, _is_static, _name));
         _links[link->getName()] = link;
+        _mass += link->getMass();
     }
     _base_link = _links[obj_desc.base_link];
 
@@ -1075,7 +1158,26 @@ JointConstPtr Box2DObject::getConstJointFromDOFIndex(unsigned int dof_idx) const
     return getConstJoint(dof_idx - getNumBaseDOFs());
 }
 
+float Box2DObject::getInertia() const {
+    Eigen::Vector2f com = _base_link->getCenterOfMass();
+    float inertia = 0.0f;
+    for (auto& name_link_pair : _links) {
+        Box2DLinkPtr link = name_link_pair.second;
+        float distance = (link->getCenterOfMass() - com).norm();
+        inertia += link->getInertia() + distance * link->getMass();
+    }
+    return inertia;
+}
 
+float Box2DObject::getMass() const {
+    return _mass;
+}
+
+void Box2DObject::getBox2DLinks(std::vector<Box2DLinkPtr> &links) {
+    for (auto& name_link_pair : _links) {
+        links.push_back(name_link_pair.second);
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DRobot members *///////////////////////
@@ -1085,6 +1187,9 @@ Box2DRobot::Box2DRobot(const Box2DRobotDescription &robot_desc, Box2DWorldPtr wo
     // the same functionalities twice (for object and robot), we use composition here.
     // Also we do not wanna have diamond inheritance
     _robot_object = Box2DObjectPtr(new Box2DObject(robot_desc.object_description, world));
+    if (robot_desc.use_center_of_mass) {
+        _robot_object->_base_link->setOriginToCenterOfMass();
+    }
     if (not isStatic()) {
         // info on robot x dof
         _robot_object->_x_dof_info.velocity_limits = robot_desc.translational_velocity_limits;
@@ -1263,11 +1368,11 @@ void Box2DRobot::commandEfforts(const Eigen::VectorXf &target) {
     // we are changing the state of Box2D objects here, so we should lock the world
     Box2DWorldLock lock(_robot_object->getBox2DWorld()->world_mutex);
     LoggerPtr logger = getWorld()->getLogger();
-    std::stringstream ss;
-    ss << "Commanding efforts " << target.transpose();
-    logger->logDebug(ss.str(), "[sim_env::Box2DRobot::commandEfforts]");
     Eigen::VectorXi active_dofs = _robot_object->getActiveDOFs();
     float scale = _robot_object->getBox2DWorld()->getScale();
+    std::stringstream ss;
+    ss << "Commanding efforts " << target.transpose();
+    logger->logDebug(ss.str());
     for (int i = 0; i < active_dofs.size(); ++i) {
         int dof_idx = active_dofs[i];
         // check whether we have to move the base link
@@ -1277,23 +1382,17 @@ void Box2DRobot::commandEfforts(const Eigen::VectorXf &target) {
             switch(dof_idx) {
                 case 0: {
                     // force in x
-                    ss.str("");
-                    ss << "Applying force in x direction: " << scale * target[i];
-                    logger->logDebug(ss.str());
-                    body->ApplyForceToCenter(b2Vec2(scale * target[i], 0.0f), true);
+                    body->ApplyForceToCenter(b2Vec2(scale * target[i], 0.0f), true); // force is N = kg * m / s^2
                     break;
                 }
                 case 1: {
                     // force in y
-                    ss.str("");
-                    ss << "Applying force in y direction: " << scale * target[i];
-                    logger->logDebug(ss.str());
                     body->ApplyForceToCenter(b2Vec2(0.0f, scale * target[i]), true);
                     break;
                 }
                 case 2: {
                     // torque
-                    body->ApplyTorque(target[i], true);
+                    body->ApplyTorque(scale * scale * target[i], true); // torque is in Nm = kg * m / s^2 * m
                     break;
                 }
                 default: {
@@ -1341,6 +1440,22 @@ DOFInformation Box2DRobot::getDOFInformation(unsigned int dof_index) const {
 
 void Box2DRobot::getDOFInformation(unsigned int dof_index, DOFInformation &info) const {
     _robot_object->getDOFInformation(dof_index, info);
+}
+
+float Box2DRobot::getMass() const {
+    return _robot_object->getMass();
+}
+
+float Box2DRobot::getInertia() const {
+    return _robot_object->getInertia();
+}
+
+void Box2DRobot::getBox2DLinks(std::vector<Box2DLinkPtr> &links) {
+    _robot_object->getBox2DLinks(links);
+}
+
+Box2DLinkPtr Box2DRobot::getBox2DBaseLink() {
+    return _robot_object->getBox2DBaseLink();
 }
 
 

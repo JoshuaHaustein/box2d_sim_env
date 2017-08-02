@@ -94,17 +94,26 @@ namespace sim_env{
         WorldConstPtr getConstWorld() const override;
         ObjectConstPtr getConstObject() const override;
 
-        Box2DWorldPtr getBox2DWorld() const;
-//        Box2DObjectPtr getBox2DObject() const;
+        virtual void getChildJoints(std::vector<JointPtr>& child_joints);
+        virtual void getConstChildJoints(std::vector<JointConstPtr>& child_joints) const;
+        virtual void getParentJoints(std::vector<JointPtr>& parent_joints);
+        virtual void getConstParentJoints(std::vector<JointConstPtr>& parent_joints) const;
 
         void getGeometry(std::vector< std::vector<Eigen::Vector2f> >& geometry) const;
+        // Box2D specific
+        Eigen::Vector2f getCenterOfMass() const;
+        void getCenterOfMass(Eigen::Vector2f& com) const;
+        float getMass() const;
+        float getInertia() const;
+        Box2DWorldPtr getBox2DWorld() const;
+//        Box2DObjectPtr getBox2DObject() const;
 
     protected:
         // the constructor is protected to ensure that links can only be created within objects.
         Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world, bool is_static,
                   const std::string& object_name);
         // for cleanup, we need destroy functions. these are called when the Box2DWorld is destroyed.
-        void destroy(const std::shared_ptr<b2World>& b2world);
+        void destroy(const std::shared_ptr<b2World>& b2world); // TODO do we need to make this thread-safe?
         // set the name of this link
         void setName(const std::string &name) override;
         void setObjectName(const std::string& name);
@@ -123,9 +132,12 @@ namespace sim_env{
         void setPose(const Eigen::Vector3f& pose, bool update_children=true, bool joint_override=false);
         // sets the velocity (translational x,y and rotational) of this link. Should not be called externally.
         void setVelocityVector(const Eigen::Vector3f& velocity, bool relative=false);
+        // resets the origin of this link to its center of mass
+        void setOriginToCenterOfMass();
     private:
         Box2DWorldWeakPtr _world;
         b2Body* _body;
+        b2Vec2 _local_origin_offset; // optional offset from the body's frame of reference to link frame of reference
         b2Joint* _friction_joint;
         std::string _name;
         std::string _object_name;
@@ -178,16 +190,18 @@ namespace sim_env{
         WorldPtr getWorld() const override;
         ObjectPtr getObject() const override;
         virtual LinkPtr getChildLink() const override;
-        Box2DLinkPtr getChildBox2DLink() const;
         virtual LinkPtr getParentLink() const override;
-        Box2DLinkPtr getParentBox2DLink() const;
         WorldConstPtr getConstWorld() const override;
         ObjectConstPtr getConstObject() const override;
-        Box2DWorldPtr getBox2DWorld() const;
 
         void getDOFInformation(DOFInformation& info) const override;
         DOFInformation getDOFInformation() const override;
 //        Box2DObjectPtr getBox2DObject() const;
+        // Box2D specific interface
+        Box2DLinkPtr getChildBox2DLink() const;
+        Box2DLinkPtr getParentBox2DLink() const;
+        Box2DWorldPtr getBox2DWorld() const;
+        Eigen::Vector2f getAxis() const;
 
     protected:
         // ensure we can only create this from friend classes
@@ -274,7 +288,6 @@ namespace sim_env{
         virtual LinkPtr getLink(const std::string &link_name) override;
         virtual LinkConstPtr getConstLink(const std::string &link_name) const override;
         virtual LinkPtr getBaseLink() override;
-        virtual Box2DLinkPtr getBox2DBaseLink();
 
         virtual void getJoints(std::vector<JointPtr>& joints) override;
         virtual void getJoints(std::vector<JointConstPtr>& joints) const override;
@@ -284,6 +297,21 @@ namespace sim_env{
         JointConstPtr getConstJoint(const std::string &joint_name) const override;
         JointConstPtr getConstJoint(unsigned int joint_idx) const override;
         JointConstPtr getConstJointFromDOFIndex(unsigned int dof_idx) const override;
+
+        // Box2D specific methods
+        /**
+         * Returns the total mass of this object.
+         * (i.e. the sum of the mass of all its bodies)
+         * @return mass
+         */
+        float getMass() const; //TODO maybe make it part of the sim_env interface
+        /**
+         * Returns the moment of inertia of this object (given the current configuration).
+         * @return moment of inertia
+         */
+        float getInertia() const; //TODO maybe make it part of the sim_env interface (with Eigen::MatrixXf as return type?)
+        virtual Box2DLinkPtr getBox2DBaseLink();
+        void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
 
     protected:
         // ensure only friend classes can construct this
@@ -300,6 +328,7 @@ namespace sim_env{
         std::string _name;
         Eigen::Affine3f _transform;
         Box2DWorldWeakPtr _world;
+        float _mass;
         Eigen::VectorXi _active_dof_indices;
         unsigned int _num_dofs;
         std::map<std::string, Box2DLinkPtr> _links; // the object is responsible for the lifetime of its links
@@ -352,25 +381,25 @@ namespace sim_env{
         // links
         virtual void getLinks(std::vector<LinkPtr>& links) override;
         virtual void getLinks(std::vector<LinkConstPtr>& links) const override;
+        virtual void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
         virtual LinkPtr getLink(const std::string &link_name) override;
         virtual LinkConstPtr getConstLink(const std::string &link_name) const override;
         virtual LinkPtr getBaseLink() override;
+        Box2DLinkPtr getBox2DBaseLink();
         // joints
         virtual void getJoints(std::vector<JointPtr>& joints) override;
         virtual void getJoints(std::vector<JointConstPtr>& joints) const override;
         virtual JointPtr getJoint(const std::string &joint_name) override;
         virtual JointConstPtr getConstJoint(const std::string &joint_name) const override;
+        JointPtr getJoint(unsigned int joint_idx) override;
+        JointPtr getJointFromDOFIndex(unsigned int dof_idx) override;
+        JointConstPtr getConstJoint(unsigned int joint_idx) const override;
+        JointConstPtr getConstJointFromDOFIndex(unsigned int dof_idx) const override;
         // control
         virtual void setController(ControlCallback control_fn) override;
+        float getMass() const;
+        float getInertia() const;
 
-
-        JointPtr getJoint(unsigned int joint_idx) override;
-
-        JointPtr getJointFromDOFIndex(unsigned int dof_idx) override;
-
-        JointConstPtr getConstJoint(unsigned int joint_idx) const override;
-
-        JointConstPtr getConstJointFromDOFIndex(unsigned int dof_idx) const override;
 
     protected:
         // protected constructor to ensure construction is only done by friend classes

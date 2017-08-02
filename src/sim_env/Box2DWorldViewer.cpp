@@ -4,6 +4,7 @@
 
 // out includes
 #include <sim_env/Box2DWorldViewer.h>
+#include <sim_env/Box2DController.h>
 // stl includes
 #include <cstring>
 #include <random>
@@ -585,21 +586,22 @@ void sim_env::viewer::Box2DControllerView::setCurrentObject(sim_env::ObjectWeakP
     if (object_ptr->getType() == sim_env::EntityType::Robot) {
         sim_env::RobotPtr robot = std::dynamic_pointer_cast<sim_env::Robot>(object_ptr);
         _current_robot = robot;
-        // ensure we have a position controller for this robot
-        auto iter_postion = _position_controllers.find(robot->getName());
-        if (iter_postion == _position_controllers.end()) {
-            _current_position_controller = std::make_shared<sim_env::RobotPositionController>(robot);
-            _position_controllers[robot->getName()] = _current_position_controller;
-        } else {
-            _current_position_controller = iter_postion->second;
-        }
         // ensure we have a velocity controller for this robot
         auto iter_velocity = _velocity_controllers.find(robot->getName());
         if (iter_velocity == _velocity_controllers.end()) {
-            _current_velocity_controller = std::make_shared<sim_env::RobotVelocityController>(robot);
+            sim_env::Box2DRobotPtr box2d_robot = std::dynamic_pointer_cast<Box2DRobot>(robot);
+            _current_velocity_controller = std::make_shared<sim_env::Box2DRobotVelocityController>(box2d_robot);
             _velocity_controllers[robot->getName()] = _current_velocity_controller;
         } else {
             _current_velocity_controller = iter_velocity->second;
+        }
+        // ensure we have a position controller for this robot
+        auto iter_postion = _position_controllers.find(robot->getName());
+        if (iter_postion == _position_controllers.end()) {
+            _current_position_controller = std::make_shared<sim_env::RobotPositionController>(robot, _current_velocity_controller);
+            _position_controllers[robot->getName()] = _current_position_controller;
+        } else {
+            _current_position_controller = iter_postion->second;
         }
         updateView();
     }
@@ -769,7 +771,7 @@ void sim_env::viewer::Box2DControllerView::setController() {
             robot->setController(callback);
         } else {
             // set velocity controller
-            sim_env::Robot::ControlCallback callback = std::bind(&RobotVelocityController::control,
+            sim_env::Robot::ControlCallback callback = std::bind(&Box2DRobotVelocityController::control,
                                                                  _current_velocity_controller,
                                                                  _1, _2, _3, _4, _5);
             robot->getWorld()->getLogger()->logDebug("Setting velocity controller",
@@ -911,6 +913,7 @@ void sim_env::viewer::Box2DWorldView::repopulate() {
     connect(_refresh_timer, SIGNAL(timeout()), this, SLOT(refreshView()));
     _refresh_timer->setSingleShot(false);
     _refresh_timer->start(40); // 25Hz
+    // TODO BUG sometimes objects aren't drawn until I zoom in and out again
 }
 
 void sim_env::viewer::Box2DWorldView::drawFrame(const Eigen::Affine3f& frame, float length, float width) {
@@ -922,6 +925,8 @@ QSize sim_env::viewer::Box2DWorldView::sizeHint() const {
 }
 
 void sim_env::viewer::Box2DWorldView::wheelEvent(QWheelEvent *event) {
+    // TODO limit total scene size somhow to bounding box (i.e. we do not want the scrollbars to show
+    // TODO when we see all object
     scaleView(pow(2.0, -event->delta() / 240.0));
 }
 

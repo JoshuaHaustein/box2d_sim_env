@@ -6,6 +6,7 @@
 #define BOX2D_SIM_ENV_BOX2DWORLDVIEWER_H
 
 #include <sim_env/Box2DWorld.h>
+#include <sim_env/Box2DController.h>
 // Qt includes
 #include <QtGui/QApplication>
 #include <QtGui/QGraphicsView>
@@ -157,11 +158,11 @@ namespace sim_env {
             // member variables
             sim_env::RobotWeakPtr _current_robot;
             sim_env::RobotPositionControllerPtr _current_position_controller;
-            sim_env::RobotVelocityControllerPtr _current_velocity_controller;
+            sim_env::Box2DRobotVelocityControllerPtr _current_velocity_controller;
             // TODO in case robots can be deleted and new robots with the same names can be readded
             // TODO to the scene, this map may contain controllers for non-existing robots
             std::map<std::string, sim_env::RobotPositionControllerPtr> _position_controllers;
-            std::map<std::string, sim_env::RobotVelocityControllerPtr> _velocity_controllers;
+            std::map<std::string, sim_env::Box2DRobotVelocityControllerPtr> _velocity_controllers;
             QPushButton* _enable_button;
             QRadioButton* _position_button;
             QRadioButton* _velocity_button;

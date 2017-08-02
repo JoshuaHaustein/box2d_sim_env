@@ -51,6 +51,7 @@ namespace sim_env {
         Eigen::Vector2f translational_acceleration_limits;
         Eigen::Vector2f rotational_velocity_limits;
         Eigen::Vector2f rotational_acceleration_limits;
+        bool use_center_of_mass;
     };
 
     struct Box2DStateDescription {
@@ -337,6 +338,7 @@ namespace YAML {
             base_actuation_node["translational_acceleration_limits"] = rd.translational_acceleration_limits;
             base_actuation_node["rotational_velocity_limits"] = rd.rotational_velocity_limits;
             base_actuation_node["rotational_acceleration_limits"] = rd.rotational_acceleration_limits;
+            base_actuation_node["use_center_of_mass"] = rd.use_center_of_mass;
             node["base_actuation"] = base_actuation_node;
             return node;
         }
@@ -350,6 +352,7 @@ namespace YAML {
                 rd.rotational_velocity_limits = base_actuation_node["rotational_velocity_limits"].as<Eigen::Vector2f>();
                 rd.translational_acceleration_limits = base_actuation_node["translational_acceleration_limits"].as<Eigen::Vector2f>();
                 rd.translational_velocity_limits = base_actuation_node["translational_velocity_limits"].as<Eigen::Vector2f>();
+                rd.use_center_of_mass = base_actuation_node["use_center_of_mass"].as<bool>();
             } else {
                 rd.object_description.is_static = true;
             }

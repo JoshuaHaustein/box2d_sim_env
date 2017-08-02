@@ -1,4 +1,4 @@
-name: test_robot
+name: test_robot_simple_finger
 base_actuation:
   translational_velocity_limits: [-10.0, 10.0]
   translational_acceleration_limits: [-2, 2]
@@ -19,32 +19,16 @@ links:
     geometry:
       - [-0.05, 0.0, 0.05, 0.0, 0.05, 0.4, -0.05, 0.4]
     mass: 0.3
-    trans_friction: 0.1
-    rot_friction: 0.1
-    restitution: 1.0
-    contact_friction: 1.5
-  - name: test_robot_finger_l_2
-    geometry:
-      - [-0.05, 0.0, 0.05, 0.0, 0.05, 0.2, -0.05, 0.2]
-    mass: 0.1
-    trans_friction: 0.1
-    rot_friction: 0.1
+    trans_friction: 0.0
+    rot_friction: 0.0
     restitution: 1.0
     contact_friction: 1.5
   - name: test_robot_finger_r_1
     geometry:
       - [-0.05, 0.0, 0.05, 0.0, 0.05, 0.4, -0.05, 0.4]
     mass: 0.3
-    trans_friction: 0.1
-    rot_friction: 0.2
-    restitution: 1.0
-    contact_friction: 1.5
-  - name: test_robot_finger_r_2
-    geometry:
-      - [-0.05, 0.0, 0.05, 0.0, 0.05, 0.2, -0.05, 0.2]
-    mass: 0.1
-    trans_friction: 0.1
-    rot_friction: 0.1
+    trans_friction: 0.0
+    rot_friction: 0.0
     restitution: 1.0
     contact_friction: 1.5
 joints:
@@ -58,17 +42,6 @@ joints:
     acceleration_limits: [-1.0, 1.0]
     joint_type: revolute
     actuated: True
-  - name: finger_l_joint_2
-    link_a: test_robot_finger_l_1
-    link_b: test_robot_finger_l_2
-    axis: [0.0, 0.35]
-    axis_orientation: 0.0
-    position_limits: [-1.05, 1.05]
-    velocity_limits: [-10.0, 10.0]
-    acceleration_limits: [-1.0, 1.0]
-    joint_type: revolute
-    max_torque: 1.0
-    actuated: True
   - name: finger_r_joint_1
     link_a: test_robot_base
     link_b: test_robot_finger_r_1
@@ -78,16 +51,5 @@ joints:
     position_limits: [-1.05, 1.05]
     velocity_limits: [-10.0, 10.0]
     acceleration_limits: [-1.0, 1.0]
-    max_torque: 1.0
-    actuated: True
-  - name: finger_r_joint_2
-    link_a: test_robot_finger_r_1
-    link_b: test_robot_finger_r_2
-    axis: [0.0, 0.35]
-    axis_orientation: 0.0
-    position_limits: [-1.05, 1.05]
-    velocity_limits: [-10.0, 10.0]
-    acceleration_limits: [-1.0, 1.0]
-    joint_type: revolute
     max_torque: 1.0
     actuated: True
