@@ -201,7 +201,7 @@ namespace sim_env{
         Box2DLinkPtr getChildBox2DLink() const;
         Box2DLinkPtr getParentBox2DLink() const;
         Box2DWorldPtr getBox2DWorld() const;
-        Eigen::Vector2f getAxis() const;
+        Eigen::Vector2f getAxisPosition() const;
 
     protected:
         // ensure we can only create this from friend classes

@@ -101,7 +101,7 @@ float Box2DRobotVelocityController::computeKinematicChainInertia(JointPtr root_j
         throw std::logic_error("[sim_env::Box2DRobotVelocityController::computeKinematicChainInertia] Could not cast joint"
                                        " to Box2DJoint. This controller only works with Box2DRobots!");
     }
-    Eigen::Vector2f root_axis = box2d_root_joint->getAxis();
+    Eigen::Vector2f root_axis = box2d_root_joint->getAxisPosition();
     float inertia = 0.0f;
     std::queue<JointPtr> joint_queue;
     joint_queue.push(root_joint);
@@ -114,7 +114,7 @@ float Box2DRobotVelocityController::computeKinematicChainInertia(JointPtr root_j
             " Could not cast LinkPtr to Box2DLinkPtr. This means the robot is really messed up!");
         }
         float distance = (child_link->getCenterOfMass() - root_axis).norm();
-        inertia += child_link->getInertia() + child_link->getMass() * distance; // parallel axis theorem
+        inertia += child_link->getInertia() + child_link->getMass() * distance * distance; // parallel axis theorem
         joint_queue.pop();
     }
     return inertia;

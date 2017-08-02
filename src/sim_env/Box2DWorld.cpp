@@ -671,6 +671,7 @@ ObjectConstPtr Box2DJoint::getConstObject() const {
 }
 
 void Box2DJoint::setControlTorque(float value) {
+    float scale = getBox2DWorld()->getScale();
     switch (_joint_type) {
         case JointType::Prismatic: {
             // TODO
@@ -681,7 +682,7 @@ void Box2DJoint::setControlTorque(float value) {
             b2RevoluteJoint* revolute_joint = static_cast<b2RevoluteJoint*>(_joint);
             revolute_joint->EnableMotor(true);
             // TODO this is a hack. does it work? Also how does this relate to acceleration limits??
-            revolute_joint->SetMaxMotorTorque(std::abs(value));
+            revolute_joint->SetMaxMotorTorque(scale * scale * std::abs(value)); // need to scale the torque to box2d world
             float sgn = value > 0.0f ? 1.0f : -1.0f;
             revolute_joint->SetMotorSpeed(sgn * std::numeric_limits<float>::max());
             break;
@@ -710,7 +711,7 @@ void Box2DJoint::getAccelerationLimits(Eigen::Array2f &limits) const {
     limits = _acceleration_limits;
 }
 
-Eigen::Vector2f Box2DJoint::getAxis() const {
+Eigen::Vector2f Box2DJoint::getAxisPosition() const {
     Box2DLinkPtr child_link = getChildBox2DLink();
     Eigen::Vector3f child_pose;
     child_link->getPose(child_pose);
@@ -1164,7 +1165,7 @@ float Box2DObject::getInertia() const {
     for (auto& name_link_pair : _links) {
         Box2DLinkPtr link = name_link_pair.second;
         float distance = (link->getCenterOfMass() - com).norm();
-        inertia += link->getInertia() + distance * link->getMass();
+        inertia += link->getInertia() + distance * distance * link->getMass();
     }
     return inertia;
 }
@@ -1367,12 +1368,12 @@ void Box2DRobot::setController(ControlCallback controll_fn) {
 void Box2DRobot::commandEfforts(const Eigen::VectorXf &target) {
     // we are changing the state of Box2D objects here, so we should lock the world
     Box2DWorldLock lock(_robot_object->getBox2DWorld()->world_mutex);
-    LoggerPtr logger = getWorld()->getLogger();
+//    LoggerPtr logger = getWorld()->getLogger();
     Eigen::VectorXi active_dofs = _robot_object->getActiveDOFs();
     float scale = _robot_object->getBox2DWorld()->getScale();
-    std::stringstream ss;
-    ss << "Commanding efforts " << target.transpose();
-    logger->logDebug(ss.str());
+//    std::stringstream ss;
+//    ss << "Commanding efforts " << target.transpose();
+//    logger->logDebug(ss.str());
     for (int i = 0; i < active_dofs.size(); ++i) {
         int dof_idx = active_dofs[i];
         // check whether we have to move the base link

@@ -39,7 +39,7 @@ joints:
     axis_orientation: 0.0
     position_limits: [-1.05, 1.05]
     velocity_limits: [-10.0, 10.0]
-    acceleration_limits: [-1.0, 1.0]
+    acceleration_limits: [-20.0, 20.0]
     joint_type: revolute
     actuated: True
   - name: finger_r_joint_1
@@ -50,6 +50,6 @@ joints:
     joint_type: revolute
     position_limits: [-1.05, 1.05]
     velocity_limits: [-10.0, 10.0]
-    acceleration_limits: [-1.0, 1.0]
+    acceleration_limits: [-20.0, 20.0]
     max_torque: 1.0
     actuated: True
