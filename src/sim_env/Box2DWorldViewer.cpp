@@ -257,6 +257,9 @@ bool sim_env::viewer::LineEditChangeDetector::eventFilter(QObject *qobject, QEve
     return false;
 }
 //////////////////////////////////////// Box2DObjectStateView ////////////////////////////////////////
+const std::string sim_env::viewer::Box2DObjectStateView::LINE_EDIT_TYPE_PROPERTY_KEY = "LINE_EDIT_TYPE_KEY";
+const std::string sim_env::viewer::Box2DObjectStateView::LINE_EDIT_DOF_PROPERTY_KEY = "LINE_EDIT_DOF_KEY";
+
 sim_env::viewer::Box2DObjectStateView::Box2DObjectStateView(QWidget *parent):QGroupBox(parent) {
     setTitle("Selected object state");
     _form_layout = new QFormLayout();
@@ -297,15 +300,6 @@ void sim_env::viewer::Box2DObjectStateView::sliderChange(int value) {
             object->setDOFPositions(configuration, indices);
             emit newUserState();
             return;
-        } else if (_joint_velocity_sliders.at(i) == QObject::sender()) {
-            Eigen::VectorXi indices(1);
-            indices[0] = (int) (i + object->getNumBaseDOFs());
-            Eigen::ArrayX2f limits = object->getDOFVelocityLimits(indices);
-            Eigen::VectorXf velocity(1);
-            velocity[0] = utils::fromTickValue(value, limits(0, 0), limits(0, 1));
-            object->setDOFVelocities(velocity, indices);
-            emit newUserState();
-            return;
         }
     }
 }
@@ -317,55 +311,55 @@ void sim_env::viewer::Box2DObjectStateView::lineEditChange(QLineEdit *line_edit)
         return;
     }
     // now we are sure we have a valid object, so check which text box is the source
-    assert(_object_velocity_edits.size() == _object_pose_edits.size());
-    for (size_t i = 0; i < _object_pose_edits.size(); ++i) {
-        // check whether text box i is the source of the event
-        if (_object_pose_edits.at(i) == line_edit) {
-            // if so set the respective coordinate
-            Eigen::Affine3f tf = object->getTransform();
-            bool conversion_ok = false;
-            float value = _object_pose_edits.at(i)->text().toFloat(&conversion_ok);
-            if (conversion_ok) {
-                if (i == 0 or i == 1) { // x or y change
-                    tf.translation()(i) = value;
-                    object->setTransform(tf);
-                } else { // theta change
-                    assert(i == 2);
-                    float x = tf.translation()(0);
-                    float y = tf.translation()(1);
-                    tf = Eigen::Translation3f(x, y, 0.0);
-                    tf.rotate(Eigen::AngleAxisf(value, Eigen::Vector3f::UnitZ()));
-                    object->setTransform(tf);
-                }
-            } else {
-                auto logger = object->getWorld()->getLogger();
-                logger->logErr("Could not parse position. Invalid floating point number.",
-                               "[sim_env::viewer::Box2DObjectStateView::textChange]");
-                return;
-            }
-            emit newUserState();
-            return; // there is always just one source, so we can safely return
-        } else if (_object_velocity_edits.at(i) == line_edit) {
-            // the text edit should be disabled if we have a static object
-            assert(i < object->getNumBaseDOFs());
-            // if so set the respective velocity
-            Eigen::VectorXi index(1);
-            Eigen::VectorXf value(1);
-            bool conversion_ok = false;
-            value[0] = line_edit->text().toFloat(&conversion_ok);
-            if (conversion_ok) {
-                index[0] = (int) i;
-                object->setDOFVelocities(value, index);
-            } else {
-                LoggerPtr logger = object->getWorld()->getLogger();
-                logger->logErr("Could not parse velocity. Invalid floating point number.",
-                               "[sim_env::viewer::Box2DObjectStateView::textChange]");
-                return;
-            }
-            emit newUserState();
-            return;
-        }
+    LoggerPtr logger = object->getWorld()->getLogger();
+    bool conversion_ok = true;
+    QVariant type_property = line_edit->property(LINE_EDIT_TYPE_PROPERTY_KEY.c_str());
+    int type_property_int =  type_property.toInt(&conversion_ok);
+    if (not conversion_ok
+        or (type_property_int != LINE_EDIT_OBJECT_POSE_TYPE
+            and type_property_int != LINE_EDIT_OBJECT_VEL_TYPE
+            and type_property_int != LINE_EDIT_JOINT_VEL_TYPE)) {
+        throw std::logic_error("[sim_env::viewer::Box2DObjectStateView::lineEditChange]"
+                               " Could not determine type of line edit. This should not happen and indicates corruption of this widget.");
     }
+    QVariant dof_property = line_edit->property(LINE_EDIT_DOF_PROPERTY_KEY.c_str());
+    int dof_property_int = dof_property.toInt(&conversion_ok);
+    if (not conversion_ok or dof_property_int < 0 or dof_property_int > object->getNumDOFs()) {
+        throw std::logic_error("[sim_env::viewer::Box2DObjectStateView::lineEditChange]"
+                               " Could not determine dof index of line edit. This indicates a serious corruption of this widget.");
+    }
+    // read the floating number value in line_edit
+    float value = line_edit->text().toFloat(&conversion_ok);
+    if (not conversion_ok) {
+        LoggerPtr logger = object->getWorld()->getLogger();
+        logger->logErr("Could not parse value. Invalid floating point number.",
+                       "[sim_env::viewer::Box2DObjectStateView::lineEditChange]");
+        return;
+    }
+    // now check the type of the line edit
+    if (type_property_int == LINE_EDIT_OBJECT_POSE_TYPE) {
+        // if it is a pose value set the respective coordinate
+        Eigen::Affine3f tf = object->getTransform();
+        if (dof_property_int == 0 or dof_property_int == 1) { // x or y change
+            tf.translation()(dof_property_int) = value;
+            object->setTransform(tf);
+        } else { // theta change
+            assert(dof_property_int == 2);
+            float x = tf.translation()(0);
+            float y = tf.translation()(1);
+            tf = Eigen::Translation3f(x, y, 0.0);
+            tf.rotate(Eigen::AngleAxisf(value, Eigen::Vector3f::UnitZ()));
+            object->setTransform(tf);
+        }
+    } else {
+        // if it is a velocity, set the respective velocity
+        Eigen::VectorXi index(1);
+        Eigen::VectorXf value_vector(1);
+        index[0] = dof_property_int;
+        value_vector[0] = value;
+        object->setDOFVelocities(value_vector, index);
+    }
+    emit newUserState();
 }
 
 void sim_env::viewer::Box2DObjectStateView::setViewMode(bool enable_edit) {
@@ -384,10 +378,10 @@ void sim_env::viewer::Box2DObjectStateView::setViewMode(bool enable_edit) {
         line_edit->setEnabled(enable_edit);
     }
     assert(_joint_position_sliders.size() >= object->getNumDOFs() - object->getNumBaseDOFs());
-    assert(_joint_velocity_sliders.size() >= object->getNumDOFs() - object->getNumBaseDOFs());
+    assert(_joint_velocity_edits.size() >= object->getNumDOFs() - object->getNumBaseDOFs());
     for (unsigned int i = object->getNumBaseDOFs(); i < object->getNumDOFs(); ++i) {
         _joint_position_sliders.at(i - object->getNumBaseDOFs())->setEnabled(enable_edit);
-        _joint_velocity_sliders.at(i - object->getNumBaseDOFs())->setEnabled(enable_edit);
+        _joint_velocity_edits.at(i - object->getNumBaseDOFs())->setEnabled(enable_edit);
     }
     if (enable_edit){
         _mode_button->setText("Edit");
@@ -402,38 +396,50 @@ void sim_env::viewer::Box2DObjectStateView::stateUpdate() {
     }
 }
 
-void sim_env::viewer::Box2DObjectStateView::createLineEdits(ObjectPtr object) {
+void sim_env::viewer::Box2DObjectStateView::createBaseDOFEdits(ObjectPtr object) {
     assert (_object_velocity_edits.size() == _object_pose_edits.size());
     if (_object_pose_edits.size() != 3) {
         // create edit for x value
         QLineEdit* x_edit = new QLineEdit();
         x_edit->installEventFilter(_line_edit_change_detector);
         _form_layout->addRow("x:", x_edit);
+        x_edit->setProperty(LINE_EDIT_TYPE_PROPERTY_KEY.c_str(), QVariant(LINE_EDIT_OBJECT_POSE_TYPE));
+        x_edit->setProperty(LINE_EDIT_DOF_PROPERTY_KEY.c_str(), QVariant(0));
         _object_pose_edits.push_back(x_edit);
         // create edit for x velocity value
         QLineEdit* x_vel_edit = new QLineEdit();
         x_vel_edit->installEventFilter(_line_edit_change_detector);
         _form_layout->addRow("x_vel:", x_vel_edit);
+        x_vel_edit->setProperty(LINE_EDIT_TYPE_PROPERTY_KEY.c_str(), QVariant(LINE_EDIT_OBJECT_VEL_TYPE));
+        x_vel_edit->setProperty(LINE_EDIT_DOF_PROPERTY_KEY.c_str(), QVariant(0));
         _object_velocity_edits.push_back(x_vel_edit);
         // create edit for y value
         QLineEdit* y_edit = new QLineEdit();
         y_edit->installEventFilter(_line_edit_change_detector);
         _form_layout->addRow("y:", y_edit);
+        y_edit->setProperty(LINE_EDIT_TYPE_PROPERTY_KEY.c_str(), QVariant(LINE_EDIT_OBJECT_POSE_TYPE));
+        y_edit->setProperty(LINE_EDIT_DOF_PROPERTY_KEY.c_str(), QVariant(1));
         _object_pose_edits.push_back(y_edit);
         // create edit for y velocity value
         QLineEdit* y_vel_edit = new QLineEdit();
         y_vel_edit->installEventFilter(_line_edit_change_detector);
         _form_layout->addRow("y_vel:", y_vel_edit);
+        y_vel_edit->setProperty(LINE_EDIT_TYPE_PROPERTY_KEY.c_str(), QVariant(LINE_EDIT_OBJECT_VEL_TYPE));
+        y_vel_edit->setProperty(LINE_EDIT_DOF_PROPERTY_KEY.c_str(), QVariant(1));
         _object_velocity_edits.push_back(y_vel_edit);
         // create edit for theta value
         QLineEdit* theta_edit = new QLineEdit();
         theta_edit->installEventFilter(_line_edit_change_detector);
         _form_layout->addRow("theta:", theta_edit);
+        theta_edit->setProperty(LINE_EDIT_TYPE_PROPERTY_KEY.c_str(), QVariant(LINE_EDIT_OBJECT_POSE_TYPE));
+        theta_edit->setProperty(LINE_EDIT_DOF_PROPERTY_KEY.c_str(), QVariant(2));
         _object_pose_edits.push_back(theta_edit);
-        // create edit for x velocity value
+        // create edit for theta velocity value
         QLineEdit* theta_vel_edit = new QLineEdit();
         theta_vel_edit->installEventFilter(_line_edit_change_detector);
         _form_layout->addRow("theta_vel:", theta_vel_edit);
+        theta_vel_edit->setProperty(LINE_EDIT_TYPE_PROPERTY_KEY.c_str(), QVariant(LINE_EDIT_OBJECT_VEL_TYPE));
+        theta_vel_edit->setProperty(LINE_EDIT_DOF_PROPERTY_KEY.c_str(), QVariant(2));
         _object_velocity_edits.push_back(theta_vel_edit);
     }
 }
@@ -454,7 +460,7 @@ void sim_env::viewer::Box2DObjectStateView::synchView() {
     title.append(object->getName().c_str());
     setTitle(title);
     // ensure we have a line edit item for x,y,theta
-    createLineEdits(object);
+    createBaseDOFEdits(object);
     // enable them
     for (auto& edit_item : _object_pose_edits) {
         edit_item->setEnabled(true);
@@ -467,27 +473,28 @@ void sim_env::viewer::Box2DObjectStateView::synchView() {
     int pose_dofs = object->getNumBaseDOFs();
     int num_joints = (int)object->getNumDOFs() - pose_dofs;
     // add sliders if we need more
-    assert(_joint_velocity_sliders.size() == _joint_position_sliders.size());
+    assert(_joint_velocity_edits.size() == _joint_position_sliders.size());
     for (int i = (int)_joint_position_sliders.size(); i < num_joints; ++i) {
         QSlider* slider = new QSlider(Qt::Orientation::Horizontal);
-        QSlider* vel_slider = new QSlider(Qt::Orientation::Horizontal);
+        QLineEdit* vel_edit = new QLineEdit();
+        vel_edit->setProperty(LINE_EDIT_TYPE_PROPERTY_KEY.c_str(), QVariant(LINE_EDIT_JOINT_VEL_TYPE));
+        vel_edit->setProperty(LINE_EDIT_DOF_PROPERTY_KEY.c_str(), QVariant(i + pose_dofs));
         QString label("Joint %1");
         QString vel_label("Joint %1 vel");
         label = label.arg(i);
         vel_label = vel_label.arg(i);
         slider->setTickInterval(100);
-        vel_slider->setTickInterval(100);
         _form_layout->addRow(label, slider);
-        _form_layout->addRow(vel_label, vel_slider);
+        _form_layout->addRow(vel_label, vel_edit);
         _joint_position_sliders.push_back(slider);
-        _joint_velocity_sliders.push_back(vel_slider);
+        _joint_velocity_edits.push_back(vel_edit);
         QObject::connect(slider, SIGNAL(valueChanged(int)), this, SLOT(sliderChange(int)));
-        QObject::connect(vel_slider, SIGNAL(valueChanged(int)), this, SLOT(sliderChange(int)));
+        vel_edit->installEventFilter(_line_edit_change_detector);
     }
     // disable sliders that we do not need and ensure existing sliders are enabled
     for (int i = 0; i < (int)_joint_position_sliders.size(); ++i) {
         _joint_position_sliders.at((size_t)i)->setEnabled(i < num_joints);
-        _joint_velocity_sliders.at((size_t)i)->setEnabled(i < num_joints);
+        _joint_velocity_edits.at((size_t)i)->setEnabled(i < num_joints);
     }
     logger->logDebug("View synchronized", prefix);
 }
@@ -543,8 +550,10 @@ void sim_env::viewer::Box2DObjectStateView::showValues() {
     for (unsigned int i = object->getNumBaseDOFs(); i < configuration.size(); ++i) {
         QSlider* pos_slider = _joint_position_sliders.at(i - object->getNumBaseDOFs());
         setSliderValue(pos_slider, configuration[i], position_limits(i, 0), position_limits(i, 1));
-        QSlider* vel_slider = _joint_velocity_sliders.at(i - object->getNumBaseDOFs());
-        setSliderValue(vel_slider, velocities[i], velocity_limits(i, 0), velocity_limits(i, 1));
+        QString value("%L1");
+        QLineEdit* vel_edit = _joint_velocity_edits.at(i - object->getNumBaseDOFs());
+        value = value.arg(velocities[i]);
+        vel_edit->setText(value);
     }
 }
 

@@ -112,24 +112,35 @@ namespace sim_env {
             virtual ~Box2DObjectStateView();
 
         public slots:
-            void setCurrentObject(sim_env::ObjectWeakPtr object); // called by robot/object view on click
-            void sliderChange(int value); // called when a slider is changed
-            void lineEditChange(QLineEdit* line_edit); // called when a line edit is changed
-            void setViewMode(bool enable_edit); // called when enable button changes its state
-            void stateUpdate(); // called when the world state has changed, i.e. the current's object state may be different
+            // called by robot/object view on click, sets the object for which the state is to be shown
+            void setCurrentObject(sim_env::ObjectWeakPtr object);
+            // called when a slider is changed
+            void sliderChange(int value);
+            // called when a line edit is changed
+            void lineEditChange(QLineEdit* line_edit);
+            // called when enable button changes its state
+            void setViewMode(bool enable_edit);
+            // called when the world state has changed, i.e. the current's object state may be different
+            void stateUpdate();
         signals:
             void newUserState();
+        protected:
+            static const std::string LINE_EDIT_TYPE_PROPERTY_KEY;
+            static const std::string LINE_EDIT_DOF_PROPERTY_KEY;
+            constexpr static int LINE_EDIT_OBJECT_POSE_TYPE = 0;
+            constexpr static int LINE_EDIT_OBJECT_VEL_TYPE = 1;
+            constexpr static int LINE_EDIT_JOINT_VEL_TYPE = 2;
         private:
             sim_env::ObjectWeakPtr _current_object;
             std::vector<QLineEdit*> _object_pose_edits;
             std::vector<QSlider*> _joint_position_sliders;
             std::vector<QLineEdit*> _object_velocity_edits;
-            std::vector<QSlider*> _joint_velocity_sliders;
+            std::vector<QLineEdit*> _joint_velocity_edits;
             QFormLayout* _form_layout;
             QPushButton* _mode_button;
             LineEditChangeDetector* _line_edit_change_detector;
 
-            void createLineEdits(ObjectPtr object);
+            void createBaseDOFEdits(ObjectPtr object);
             void synchView();
             void setSliderValue(QSlider* slider, float value, float min_value, float max_value);
             void showValues();
