@@ -16,13 +16,15 @@
 using namespace sim_env;
 namespace bg = boost::geometry;
 
+typedef std::lock_guard<std::recursive_mutex> Box2DWorldLock;
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DLink members *////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world,
                      bool is_static, const std::string& object_name):
     _destroyed(false) {
-    Box2DWorldLock lock(world->world_mutex);
+    Box2DWorldLock lock(world->getMutex());
     _name = link_desc.name;
     _world = world;
     _object_name = object_name;
@@ -95,14 +97,19 @@ void Box2DLink::destroy(const std::shared_ptr<b2World>& b2world) {
     _destroyed = true;
 }
 
-bool Box2DLink::checkCollision(CollidableConstPtr other) const {
-    // TODO implement me
-    return false;
+bool Box2DLink::checkCollision(CollidablePtr other) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this(), other);
 }
 
-bool Box2DLink::checkCollision(const std::vector<CollidableConstPtr> &others) const {
-    // TODO  implement me
-    return false;
+bool Box2DLink::checkCollision(const std::vector<CollidablePtr> &others) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this(), others);
+}
+
+bool Box2DLink::checkCollision() {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this());
 }
 
 std::string Box2DLink::getName() const {
@@ -381,13 +388,19 @@ void Box2DLink::propagateVelocityChange(const float& dx,
     }
 }
 
+void Box2DLink::getBodies(std::vector<b2Body *> &bodies) {
+    bodies.push_back(_body);
+}
+
+
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DJoint members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
 Box2DJoint::Box2DJoint(const Box2DJointDescription &joint_desc, Box2DLinkPtr link_a, Box2DLinkPtr link_b,
                        Box2DWorldPtr world, const std::string& object_name):_destroyed(false) {
-    Box2DWorldLock lock(world->world_mutex);
+    Box2DWorldLock lock(world->getMutex());
     _world = world;
     _name = joint_desc.name;
     _link_a = link_a;
@@ -423,10 +436,8 @@ Box2DJoint::Box2DJoint(const Box2DJointDescription &joint_desc, Box2DLinkPtr lin
             joint_def.lowerAngle = joint_desc.position_limits[0];
             joint_def.upperAngle = joint_desc.position_limits[1];
             joint_def.enableLimit = joint_desc.position_limits.norm() > 0.0;
-            // TODO might have to transform acceleration here to torque (torque = radius x mass * acceleration)
-            // TODO might need a dynamic model of the robot to compute that -,-
-            joint_def.maxMotorTorque = std::min(std::abs(joint_desc.acceleration_limits[0]),
-                                                std::abs(joint_desc.acceleration_limits[1]));
+//            joint_def.maxMotorTorque = std::min(std::abs(joint_desc.acceleration_limits[0]),
+//                                                std::abs(joint_desc.acceleration_limits[1]));
             joint_def.enableMotor = joint_desc.actuated;
             _joint = box2d_world->CreateJoint(&joint_def);
 
@@ -493,7 +504,7 @@ void Box2DJoint::setPosition(float v) {
 
 void Box2DJoint::resetPosition(float value, bool child_joint_override) {
     auto world = getBox2DWorld();
-    Box2DWorldLock lock(world->world_mutex);
+    Box2DWorldLock lock(world->getMutex());
     auto logger = world->getLogger();
     if (value < _position_limits[0] || value > _position_limits[1]) {
         std::stringstream ss;
@@ -545,7 +556,7 @@ float Box2DJoint::getVelocity() const {
 
 void Box2DJoint::setVelocity(float v) {
     auto world = getBox2DWorld();
-    Box2DWorldLock lock(world->world_mutex);
+    Box2DWorldLock lock(world->getMutex());
     switch (_joint_type) {
         case JointType::Revolute: {
             Box2DLinkPtr link_a = getParentBox2DLink();
@@ -681,9 +692,12 @@ void Box2DJoint::setControlTorque(float value) {
         case JointType::Revolute: {
             b2RevoluteJoint* revolute_joint = static_cast<b2RevoluteJoint*>(_joint);
             revolute_joint->EnableMotor(true);
-            // TODO this is a hack. does it work? Also how does this relate to acceleration limits??
+            // TODO There is not max torque check here. We probably should have a maximum possible torque
+            // TODO at least that sth we would have on real robots. At the moment this is limited in Box2DVelocityController
+            // TODO using the user-specified acceleration limits.
             revolute_joint->SetMaxMotorTorque(scale * scale * std::abs(value)); // need to scale the torque to box2d world
             float sgn = value > 0.0f ? 1.0f : -1.0f;
+            // This is a hack to force the motor to apply the given torque. It seems to work
             revolute_joint->SetMotorSpeed(sgn * std::numeric_limits<float>::max());
             break;
         }
@@ -819,7 +833,7 @@ void Box2DObject::getPose(Eigen::Vector3f& pose) const {
 
 void Box2DObject::setTransform(const Eigen::Affine3f &tf) {
     auto world = getBox2DWorld();
-    Box2DWorldLock lock(world->world_mutex);
+    Box2DWorldLock lock(world->getMutex());
     _base_link->setTransform(tf);
 }
 
@@ -839,19 +853,24 @@ Box2DWorldPtr Box2DObject::getBox2DWorld() const {
     return world;
 }
 
-bool Box2DObject::checkCollision(CollidableConstPtr other_object) const {
-    // TODO
-    return false;
+bool Box2DObject::checkCollision() {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this());
 }
 
-bool Box2DObject::checkCollision(const std::vector<CollidableConstPtr> &object_list) const {
-    // TODO
-    return false;
+bool Box2DObject::checkCollision(CollidablePtr other_object) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this(), other_object);
+}
+
+bool Box2DObject::checkCollision(const std::vector<CollidablePtr> &object_list) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this(), object_list);
 }
 
 void Box2DObject::setActiveDOFs(const Eigen::VectorXi &indices) {
     auto world = getBox2DWorld();
-    Box2DWorldLock lock(world->world_mutex);
+    Box2DWorldLock lock(world->getMutex());
     _active_dof_indices = indices;
 }
 
@@ -934,7 +953,7 @@ void Box2DObject::getDOFInformation(unsigned int dof_index, DOFInformation &info
 
 void Box2DObject::setDOFPositions(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
     auto world = getBox2DWorld();
-    Box2DWorldLock lock(world->world_mutex);
+    Box2DWorldLock lock(world->getMutex());
     Eigen::VectorXi dofs_to_set = indices;
     if (dofs_to_set.size() == 0) {
         dofs_to_set = _active_dof_indices;
@@ -1015,7 +1034,7 @@ Eigen::ArrayX2f Box2DObject::getDOFAccelerationLimits(const Eigen::VectorXi &ind
 
 void Box2DObject::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
     auto world = getBox2DWorld();
-    Box2DWorldLock lock(world->world_mutex);
+    Box2DWorldLock lock(world->getMutex());
     Eigen::VectorXi dofs_to_set = indices;
     if (dofs_to_set.size() == 0) {
         dofs_to_set = _active_dof_indices;
@@ -1180,6 +1199,35 @@ void Box2DObject::getBox2DLinks(std::vector<Box2DLinkPtr> &links) {
     }
 }
 
+void Box2DObject::getBodies(std::vector<b2Body *> &bodies) {
+    for (auto& link : _links) {
+        Box2DLinkPtr box2d_link = link.second;
+        box2d_link->getBodies(bodies);
+    }
+}
+
+void Box2DObject::getState(ObjectState &object_state) const {
+    object_state.active_dofs = _active_dof_indices;
+    Eigen::VectorXi all_indices = getDOFIndices();
+    object_state.dof_positions = getDOFPositions(all_indices);
+    object_state.dof_velocities = getDOFVelocities(all_indices);
+    object_state.pose = getTransform();
+}
+
+ObjectState Box2DObject::getState() const {
+    ObjectState object_state;
+    getState(object_state);
+    return object_state;
+}
+
+void Box2DObject::setState(const ObjectState &object_state) {
+    _active_dof_indices = object_state.active_dofs;
+    setTransform(object_state.pose);
+    Eigen::VectorXi all_indices = getDOFIndices();
+    setDOFPositions(object_state.dof_positions, all_indices);
+    setDOFVelocities(object_state.dof_velocities, all_indices);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DRobot members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -1271,11 +1319,15 @@ bool Box2DRobot::isStatic() const {
     return _robot_object->isStatic();
 }
 
-bool Box2DRobot::checkCollision(CollidableConstPtr other) const {
+bool Box2DRobot::checkCollision() {
+    return _robot_object->checkCollision();
+}
+
+bool Box2DRobot::checkCollision(CollidablePtr other) {
     return _robot_object->checkCollision(other);
 }
 
-bool Box2DRobot::checkCollision(const std::vector<CollidableConstPtr> &others) const {
+bool Box2DRobot::checkCollision(const std::vector<CollidablePtr> &others) {
     return _robot_object->checkCollision(others);
 }
 
@@ -1367,7 +1419,7 @@ void Box2DRobot::setController(ControlCallback controll_fn) {
 
 void Box2DRobot::commandEfforts(const Eigen::VectorXf &target) {
     // we are changing the state of Box2D objects here, so we should lock the world
-    Box2DWorldLock lock(_robot_object->getBox2DWorld()->world_mutex);
+    Box2DWorldLock lock(_robot_object->getBox2DWorld()->getMutex());
 //    LoggerPtr logger = getWorld()->getLogger();
     Eigen::VectorXi active_dofs = _robot_object->getActiveDOFs();
     float scale = _robot_object->getBox2DWorld()->getScale();
@@ -1459,13 +1511,175 @@ Box2DLinkPtr Box2DRobot::getBox2DBaseLink() {
     return _robot_object->getBox2DBaseLink();
 }
 
+void Box2DRobot::getBodies(std::vector<b2Body *> &bodies) {
+    _robot_object->getBodies(bodies);
+}
+
+void Box2DRobot::getState(ObjectState &object_state) const {
+    _robot_object->getState(object_state);
+}
+
+ObjectState Box2DRobot::getState() const {
+    return _robot_object->getState();
+}
+
+void Box2DRobot::setState(const ObjectState &object_state) {
+    _robot_object->setState(object_state);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/////////////////////* Definition of Box2DCollisionChecker members *///////////////////////
+////////////////////////////////////////////////////////////////////////////////
+Box2DCollisionChecker::Box2DCollisionChecker(Box2DWorldPtr world) {
+    _weak_world = world;
+}
+
+Box2DCollisionChecker::~Box2DCollisionChecker() {
+}
+
+bool Box2DCollisionChecker::checkCollision(CollidablePtr collidable_a, CollidablePtr collidable_b) {
+    std::vector<CollidablePtr> collidables;
+    collidables.push_back(collidable_b);
+    return checkCollision(collidable_a, collidables);
+}
+
+bool Box2DCollisionChecker::checkCollision(CollidablePtr collidable) {
+    Box2DCollidablePtr box2d_collidable = castCollidable(collidable);
+    updateContacts();
+    std::vector<b2Body*> bodies;
+    box2d_collidable->getBodies(bodies);
+    for (b2Body* body : bodies) {
+        if (hasContacts(body)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Box2DCollisionChecker::checkCollision(CollidablePtr collidable_a, const std::vector<CollidablePtr> &collidables) {
+    // compute contacts
+    updateContacts();
+    // we only need to get the bodies of collidable a once
+    Box2DCollidablePtr box2d_collidable_a = castCollidable(collidable_a);
+    std::vector<b2Body*> bodies_a;
+    box2d_collidable_a->getBodies(bodies_a);
+    // now we need to run over each collidable in the list and check for collisions
+    for (CollidablePtr collidable : collidables) {
+        Box2DCollidablePtr box2d_collidable_b = castCollidable(collidable);
+        // now check if the specified collidables collide
+        std::vector<b2Body*> bodies_b;
+        box2d_collidable_b->getBodies(bodies_b);
+        // now run over each body pair and check whether it is colliding
+        for (b2Body* body_a : bodies_a) {
+            auto iter_a = _contact_maps.find(body_a);
+            if (iter_a != _contact_maps.end()) {
+                // body_a has some contacts
+                ContactMap& body_a_contacts = iter_a->second;
+                // let's check whether any of b's bodies is in contact with this body
+                for (b2Body* body_b : bodies_b) {
+                    auto iter_b = body_a_contacts.find(body_b);
+                    // if yes return
+                    if (iter_b != body_a_contacts.end()) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    // if we get here, there is no collision
+    return false;
+}
+
+void Box2DCollisionChecker::BeginContact(b2Contact *contact) {
+    LoggerPtr logger = DefaultLogger::getInstance();
+    logger->logInfo("begin contact");
+}
+
+void Box2DCollisionChecker::EndContact(b2Contact *contact) {
+    LoggerPtr logger = DefaultLogger::getInstance();
+    logger->logInfo("end contact");
+}
+
+void Box2DCollisionChecker::PreSolve(b2Contact *contact, const b2Manifold *oldManifold) {
+    LoggerPtr logger = DefaultLogger::getInstance();
+    logger->logInfo("pre solve");
+    if (_record_contacts) {
+        b2Body* body_a = contact->GetFixtureA()->GetBody();
+        b2Body* body_b = contact->GetFixtureB()->GetBody();
+        addContact(body_a, body_b);
+        addContact(body_b, body_a);
+        logger->logInfo("recorded contact");
+    }
+}
+
+void Box2DCollisionChecker::PostSolve(b2Contact *contact, const b2ContactImpulse *impulse) {
+    LoggerPtr logger = DefaultLogger::getInstance();
+    logger->logInfo("post solve");
+}
+
+void Box2DCollisionChecker::addContact(b2Body* body_a, b2Body* body_b) {
+    // first ensure we have a contacts map for body a
+    auto insert_result = _contact_maps.insert(std::pair<b2Body*, ContactMap>(body_a, ContactMap()));
+    // insert result should be (iter, bool) with iter pointing at the ContactMap for body_a
+    assert(insert_result.first != _contact_maps.end());
+    ContactMap& body_a_contacts = insert_result.first->second;
+    // now check whether we have body_b already in the contact list
+    auto iter_b = body_a_contacts.find(body_b);
+    if (iter_b == body_a_contacts.end()) {
+        // if not add it
+        body_a_contacts.insert(std::pair<b2Body*, bool>(body_b, true));
+    }
+    // since body_a_contacts is a reference, we are done
+}
+
+bool Box2DCollisionChecker::areInContact(b2Body *body_a, b2Body *body_b) const {
+    auto iter_a = _contact_maps.find(body_a);
+    if (iter_a == _contact_maps.end()) {
+        return false;
+    }
+    const ContactMap& body_a_contacts = iter_a->second;
+    auto iter_b = body_a_contacts.find(body_b);
+    return iter_b != body_a_contacts.end();
+}
+
+void Box2DCollisionChecker::updateContacts() {
+    _contact_maps.clear();
+    _record_contacts = true;
+    Box2DWorldPtr world = _weak_world.lock();
+    if (!world) {
+        throw std::logic_error("[sim_env::Box2DCollisionChecker::updateContacts]"
+                               "Could not acquire access to Box2DWorld. This object should not exist anymore!");
+    }
+    Box2DWorldLock lock(world->getMutex());
+    world->saveState();
+    world->stepPhysics(1);
+    world->restoreState();
+    _record_contacts = false;
+}
+
+Box2DCollidablePtr Box2DCollisionChecker::castCollidable(CollidablePtr collidable) const {
+    Box2DCollidablePtr box2d_collidable = std::dynamic_pointer_cast<Box2DCollidable>(collidable);
+    if (!box2d_collidable) {
+        // we can only operate on Box2DCollidables.
+        // This is a breach of polymorphism. However, this is clearly stated in the documentation of sim_env::SimEnv.h
+        throw std::logic_error("Could not cast provided Collidable to Box2DCollidable."
+                               "Only Box2DCollidable are supported.");
+    }
+    return box2d_collidable;
+}
+
+bool Box2DCollisionChecker::hasContacts(b2Body *body) const {
+    auto iter = _contact_maps.find(body);
+    return iter != _contact_maps.end();
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DWorld members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-Box2DWorld::Box2DWorld() : _world(nullptr), _b2_ground_body(nullptr), _time_step(0.01f),
-    _velocity_steps(10), _position_steps(10) {
+Box2DWorld::Box2DWorld() : _world(nullptr), _b2_ground_body(nullptr), _collision_checker(nullptr),
+                           _time_step(0.01f), _velocity_steps(10), _position_steps(10), _logger(DefaultLogger::getInstance()) {
 }
 
 Box2DWorld::~Box2DWorld() {
@@ -1525,7 +1739,7 @@ void Box2DWorld::getRobots(std::vector<RobotPtr> &robots) const {
 }
 
 void Box2DWorld::stepPhysics(int steps) {
-    Box2DWorldLock lock(world_mutex);
+    Box2DWorldLock lock(getMutex());
     for (int i = 0; i < steps; ++i) {
         // call control functions of all robots in the scene
         for (auto& robot_map_iter : _robots) {
@@ -1570,7 +1784,7 @@ WorldViewerPtr Box2DWorld::getViewer() {
 }
 
 LoggerPtr Box2DWorld::getLogger() {
-    return DefaultLogger::getInstance();
+    return _logger;
 }
 
 float Box2DWorld::getScale() const {
@@ -1591,6 +1805,80 @@ float Box2DWorld::getGravity() const {
     return GRAVITY * getScale();
 }
 
+bool Box2DWorld::checkCollision(CollidablePtr collidable_a, CollidablePtr collidable_b) {
+    return _collision_checker->checkCollision(collidable_a, collidable_b);
+}
+
+bool Box2DWorld::checkCollision(CollidablePtr collidable) {
+    return _collision_checker->checkCollision(collidable);
+}
+
+bool Box2DWorld::checkCollision(CollidablePtr collidable_a, const std::vector<CollidablePtr> &collidables) {
+    return _collision_checker->checkCollision(collidable_a, collidables);
+}
+
+std::recursive_mutex& Box2DWorld::getMutex() const {
+    return _world_mutex;
+}
+
+WorldState Box2DWorld::getWorldState() const {
+    Box2DWorldLock lock(_world_mutex);
+    WorldState state;
+    getWorldState(state);
+    return state;
+}
+
+void Box2DWorld::getWorldState(WorldState &state) const {
+    Box2DWorldLock lock(_world_mutex);
+    ObjectState object_state;
+    for (auto& object_item : _objects) {
+        object_item.second->getState(object_state);
+        state[object_item.first] = object_state;
+    }
+    for (auto& robot_item : _robots) {
+        robot_item.second->getState(object_state);
+        state[robot_item.first] = object_state;
+    }
+}
+
+bool Box2DWorld::setWorldState(WorldState &state) {
+    Box2DWorldLock lock(_world_mutex);
+    bool b_success = true;
+    for (auto& state_item : state) {
+        auto object_iter = _objects.find(state_item.first);
+        if (object_iter != _objects.end()) {
+            object_iter->second->setState(state_item.second);
+        } else {
+            auto robot_iter = _robots.find(state_item.first);
+            if (robot_iter != _robots.end())  {
+                robot_iter->second->setState(state_item.second);
+            } else {
+                std::stringstream ss;
+                ss << "Unknown object encountered! Could not set state of object " << state_item.first;
+                _logger->logWarn(ss.str(), "[sim_env::Box2DWorld::setWorldState]");
+                b_success = false;
+            }
+        }
+    }
+    return b_success;
+}
+
+void Box2DWorld::saveState() {
+    Box2DWorldLock lock(getMutex());
+    WorldState state;
+    getWorldState(state);
+    _state_stack.push(state);
+}
+
+bool Box2DWorld::restoreState() {
+    Box2DWorldLock lock(getMutex());
+    if (_state_stack.empty()) {
+        return false;
+    }
+    bool state_is_set = setWorldState(_state_stack.top());
+    _state_stack.pop();
+    return state_is_set;
+}
 ////////////////////////////// PROTECTED FUNCTIONS //////////////////////////////
 std::shared_ptr<b2World> Box2DWorld::getRawBox2DWorld() {
     return _world;
@@ -1602,7 +1890,7 @@ b2Body* Box2DWorld::getGroundBody() {
 
 ////////////////////////////// PRIVATE FUNCTIONS //////////////////////////////
 void Box2DWorld::eraseWorld() {
-    Box2DWorldLock lock(world_mutex);
+    Box2DWorldLock lock(_world_mutex);
     for (auto& robot_iter : _robots) {
         robot_iter.second->destroy(_world);
     }
@@ -1616,6 +1904,7 @@ void Box2DWorld::eraseWorld() {
         _b2_ground_body = nullptr;
     }
     _world.reset();
+    _collision_checker.reset();
     _scale = 1.0;
 }
 
@@ -1659,7 +1948,7 @@ void Box2DWorld::createGround(const Eigen::Vector4f &world_bounds) {
 }
 
 void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
-    Box2DWorldLock lock(world_mutex);
+    Box2DWorldLock lock(getMutex());
     _world.reset(new b2World(b2Vec2(0.0, 0.0)));
     _scale = env_desc.scale;
     // Get the dimension of the ground plane
@@ -1691,4 +1980,12 @@ void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
         object->setDOFPositions(state_desc.second.configuration);
         object->setDOFVelocities(state_desc.second.velocity);
     }
+    _collision_checker = std::make_shared<Box2DCollisionChecker>(shared_from_this());
+    b2ContactListener* contact_listener = _collision_checker.get();
+    _world->SetContactListener(contact_listener);
 }
+
+
+
+
+

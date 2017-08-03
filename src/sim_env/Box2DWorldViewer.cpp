@@ -555,6 +555,11 @@ void sim_env::viewer::Box2DObjectStateView::showValues() {
         value = value.arg(velocities[i]);
         vel_edit->setText(value);
     }
+    // TODO probably delete this again:
+    if (object->checkCollision()) {
+        LoggerPtr logger = object->getWorld()->getLogger();
+        logger->logWarn("Object is in collision");
+    }
 }
 
 

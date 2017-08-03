@@ -5,6 +5,7 @@
 #define BOX2D_SIM_ENV_BOX2DWORLD_H
 
 #include <mutex>
+#include <stack>
 #include "sim_env/SimEnv.h"
 #include "sim_env/Controller.h"
 #include "Box2DIOUtils.h"
@@ -43,9 +44,17 @@ namespace sim_env{
     typedef std::shared_ptr<const Box2DJoint> Box2DJointConstPtr;
     typedef std::weak_ptr<const Box2DJoint> Box2DJointConstWeakPtr;
 
+    class Box2DCollidable;
+    typedef std::shared_ptr<Box2DCollidable> Box2DCollidablePtr;
+    typedef std::shared_ptr<const Box2DCollidable> Box2DCollidableConstPtr;
+
     class Box2DWorldViewer;
     typedef std::shared_ptr<Box2DWorldViewer> Box2DWorldViewerPtr;
     typedef std::shared_ptr<const Box2DWorldViewer> Box2DWorldViewerConstPtr;
+
+    class Box2DCollisionChecker;
+    typedef std::shared_ptr<Box2DCollisionChecker> Box2DCollisionCheckerPtr;
+    typedef std::shared_ptr<const Box2DCollisionChecker> Box2DCollisionCheckerConstPtr;
 
     namespace viewer {
         class Box2DDrawingInterface;
@@ -53,12 +62,22 @@ namespace sim_env{
         typedef std::shared_ptr<const Box2DDrawingInterface> Box2DDrawingInterfaceConstPtr;
     }
 
-    typedef std::lock_guard<std::recursive_mutex> Box2DWorldLock;
+    class Box2DCollidable : public virtual Collidable {
+        friend class Box2DCollisionChecker;
+    protected:
+        // TODO do we need this intermediate interface?
+        // TODO here we could define the interface that we need to check whether two Box2DEntities collide
+        /**
+         * Returns all b2Bodies that this collidable contains.
+         * @param bodies list of all b2Bodies
+         */
+        virtual void getBodies(std::vector<b2Body*>& bodies) = 0;
+    };
 
     /**
      * Box2DLink - The box2d implementation of a robot/object link.
      */
-    class Box2DLink : public Link {
+    class Box2DLink : public Link, public Box2DCollidable, public std::enable_shared_from_this<Box2DLink> {
         friend class Box2DWorld;
         friend class Box2DJoint;
         friend class Box2DObject;
@@ -73,12 +92,11 @@ namespace sim_env{
         Box2DLink& operator=(Box2DLink&&) = delete;
         ~Box2DLink();
 
-        bool checkCollision(CollidableConstPtr other) const override;
-
-        bool checkCollision(const std::vector<CollidableConstPtr> &others) const override;
+        bool checkCollision() override;
+        bool checkCollision(CollidablePtr other) override;
+        bool checkCollision(const std::vector<CollidablePtr> &others) override;
 
         std::string getName() const override;
-
         EntityType getType() const override;
 
         Eigen::Affine3f getTransform() const override;
@@ -125,15 +143,18 @@ namespace sim_env{
         void registerParentJoint(Box2DJointPtr joint);
         // sets the transform of this link. Should not be called externally. Calls setPose(pose, true, false)
         void setTransform(const Eigen::Affine3f& tf);
-        /** Sets the pose of this link. If update_children is true, all child links are moved together with this link.
-        * if joint_override is true, the relative transforms between this link and its children is set
-        * to the initial transform defined by the joint connecting both links (i.e. it is set to joint position 0)
-        */
+        /*
+         * Sets the pose of this link. If update_children is true, all child links are moved together with this link.
+         * if joint_override is true, the relative transforms between this link and its children is set
+         * to the initial transform defined by the joint connecting both links (i.e. it is set to joint position 0)
+         */
         void setPose(const Eigen::Vector3f& pose, bool update_children=true, bool joint_override=false);
         // sets the velocity (translational x,y and rotational) of this link. Should not be called externally.
         void setVelocityVector(const Eigen::Vector3f& velocity, bool relative=false);
         // resets the origin of this link to its center of mass
         void setOriginToCenterOfMass();
+        // Adds the body of this link to the given vector - used for collision checks
+        void getBodies(std::vector<b2Body *> &bodies) override;
     private:
         Box2DWorldWeakPtr _world;
         b2Body* _body;
@@ -145,7 +166,7 @@ namespace sim_env{
         std::vector<Box2DJointWeakPtr> _parent_joints;
         bool _destroyed;
 
-        /**
+        /*
          * Recursively propagates a velocity change through a kinematic chain.
          * @param lin_vel linear velocity change in global frame (scaled to box2d world)
          * @param dw angular velocity change
@@ -193,7 +214,6 @@ namespace sim_env{
         virtual LinkPtr getParentLink() const override;
         WorldConstPtr getConstWorld() const override;
         ObjectConstPtr getConstObject() const override;
-
         void getDOFInformation(DOFInformation& info) const override;
         DOFInformation getDOFInformation() const override;
 //        Box2DObjectPtr getBox2DObject() const;
@@ -238,7 +258,7 @@ namespace sim_env{
     /**
      * Box2DObject - This class implements an Object in box2d.
      */
-    class Box2DObject : public Object {
+    class Box2DObject : public Object, public Box2DCollidable, public std::enable_shared_from_this<Box2DObject> {
         friend class Box2DWorld;
         friend class Box2DRobot;
     public:
@@ -259,8 +279,9 @@ namespace sim_env{
         void getPose(Eigen::Vector3f& pose) const;
         virtual void setTransform(const Eigen::Affine3f& tf) override;
 
-        virtual bool checkCollision(CollidableConstPtr other_object) const override;
-        virtual bool checkCollision(const std::vector<CollidableConstPtr>& object_list) const override;
+        bool checkCollision() override;
+        bool checkCollision(CollidablePtr other_object) override;
+        bool checkCollision(const std::vector<CollidablePtr>& object_list) override;
 
         virtual void setActiveDOFs(const Eigen::VectorXi& indices) override;
         virtual Eigen::VectorXi getActiveDOFs() const override;
@@ -313,6 +334,12 @@ namespace sim_env{
         virtual Box2DLinkPtr getBox2DBaseLink();
         void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
 
+        void getState(ObjectState &object_state) const override;
+
+        ObjectState getState() const override;
+
+        void setState(const ObjectState &object_state) override;
+
     protected:
         // ensure only friend classes can construct this
         Box2DObject(const Box2DObjectDescription& obj_desc, Box2DWorldPtr world);
@@ -320,13 +347,15 @@ namespace sim_env{
         void destroy(const std::shared_ptr<b2World>& b2world);
         virtual void setName(const std::string &name) override;
         Box2DJointPtr getBox2DJoint(unsigned int idx);
+        // puts all link bodies into the given list (for collision checking)
+        void getBodies(std::vector<b2Body *> &bodies) override;
+
         // these can be overwritten by Box2DRobot
         DOFInformation _x_dof_info;
         DOFInformation _y_dof_info;
         DOFInformation _theta_dof_info;
     private:
         std::string _name;
-        Eigen::Affine3f _transform;
         Box2DWorldWeakPtr _world;
         float _mass;
         Eigen::VectorXi _active_dof_indices;
@@ -343,7 +372,7 @@ namespace sim_env{
      * Box2DRobot - This class implements a Robot in box2d.
      * See sim_env::Object and sim_env::Robot for documentation.
      */
-    class Box2DRobot : public Robot, public std::enable_shared_from_this<Box2DRobot>{
+    class Box2DRobot : public Robot, public Box2DCollidable, public std::enable_shared_from_this<Box2DRobot>{
         friend class Box2DWorld;
     public:
         /**
@@ -376,8 +405,9 @@ namespace sim_env{
         virtual Eigen::ArrayX2f getDOFAccelerationLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
         bool isStatic() const override;
         // collision checking
-        bool checkCollision(CollidableConstPtr other) const override;
-        bool checkCollision(const std::vector<CollidableConstPtr> &others) const override;
+        bool checkCollision() override;
+        bool checkCollision(CollidablePtr other) override;
+        bool checkCollision(const std::vector<CollidablePtr> &others) override;
         // links
         virtual void getLinks(std::vector<LinkPtr>& links) override;
         virtual void getLinks(std::vector<LinkConstPtr>& links) const override;
@@ -399,7 +429,10 @@ namespace sim_env{
         virtual void setController(ControlCallback control_fn) override;
         float getMass() const;
         float getInertia() const;
-
+        // state retrieval
+        void getState(ObjectState &object_state) const override;
+        ObjectState getState() const override;
+        void setState(const ObjectState &object_state) override;
 
     protected:
         // protected constructor to ensure construction is only done by friend classes
@@ -409,6 +442,8 @@ namespace sim_env{
         virtual void setName(const std::string &name) override;
         // calls control callbacks. should be called only by step function of Box2DWorld
         void control(float timestep);
+        // retrieve all box2d bodies (for collision checking)
+        void getBodies(std::vector<b2Body *> &bodies) override;
 
     private:
         bool _destroyed;
@@ -418,6 +453,54 @@ namespace sim_env{
 
         // applies the given efforts to the underlying Box2D bodies. Locks the Box2D world.
         void commandEfforts(const Eigen::VectorXf& target);
+    };
+
+    class Box2DCollisionChecker : public b2ContactListener {
+    public:
+        Box2DCollisionChecker(Box2DWorldPtr world);
+        ~Box2DCollisionChecker();
+        /**
+         * Checks whether both provided collidables collide.
+         * @param collidable_a
+         * @param collidable_b
+         * @return true iff there is a collision between both collidables
+         */
+        bool checkCollision(CollidablePtr collidable_a, CollidablePtr collidable_b);
+
+        /**
+         * Checks whether both provided collidables collide.
+         * @param collidable_a
+         * @return true iff collidable is in collision with any other object
+         */
+        bool checkCollision(CollidablePtr collidable);
+
+        /**
+         * Checks whether collidable_a is in collision with any of the provided collidables
+         * @param collidable_a
+         * @param collidables
+         * @return  true iff collidable_a collides with any of the provided objects in collidables
+         */
+        bool checkCollision(CollidablePtr collidable_a, const std::vector<CollidablePtr>& collidables);
+
+        // b2ContactListener
+        void BeginContact(b2Contact* contact);
+        void EndContact(b2Contact* contact);
+        void PreSolve(b2Contact* contact, const b2Manifold* oldManifold);
+        void PostSolve(b2Contact* contact, const b2ContactImpulse* impulse);
+    private:
+        Box2DWorldWeakPtr _weak_world;
+        bool _record_contacts;
+        typedef std::map<b2Body*, bool> ContactMap;
+        std::map<b2Body*, ContactMap> _contact_maps;
+
+        // TODO instead of always updating all contacts, we could listen to the world and only update
+        // TODO contacts if there were changes
+        void updateContacts();
+        // TODO maybe we can make some of these inline?
+        void addContact(b2Body* body_a, b2Body* body_b);
+        bool areInContact(b2Body* body_a, b2Body* body_b) const;
+        bool hasContacts(b2Body* body) const;
+        Box2DCollidablePtr castCollidable(CollidablePtr collidable) const;
     };
 
     /**
@@ -445,40 +528,45 @@ namespace sim_env{
 
         RobotPtr getRobot(const std::string &name) const override;
         Box2DRobotPtr getBox2DRobot(const std::string& name) const;
+        void getRobots(std::vector<RobotPtr> &robots) const override;
 
         ObjectPtr getObject(const std::string &name, bool exclude_robots=true) const override;
         Box2DObjectPtr getBox2DObject(const std::string& name) const;
-
         void getObjects(std::vector<ObjectPtr> &objects, bool exclude_robots=true) const override;
 
-        void getRobots(std::vector<RobotPtr> &robots) const override;
-
         void stepPhysics(int steps) override;
-
         bool supportsPhysics() const override;
-
         void setPhysicsTimeStep(float physics_step) override;
         void setVelocitySteps(int velocity_steps);
         void setPositionSteps(int position_steps);
-
         float getPhysicsTimeStep() const override;
         int getVelocitySteps() const;
         int getPositionSteps() const;
 
         WorldViewerPtr getViewer() override;
-
         LoggerPtr getLogger() override;
 
+        bool checkCollision(CollidablePtr collidable_a, CollidablePtr collidable_b) override;
+        bool checkCollision(CollidablePtr collidable) override;
+        bool checkCollision(CollidablePtr collidable_a,
+                            const std::vector<CollidablePtr> &collidables) override;
+        std::recursive_mutex& getMutex() const;
+        void saveState();
+        bool restoreState();
+        WorldState getWorldState() const override;
+        void getWorldState(WorldState &state) const override;
+        bool setWorldState(WorldState &state) override;
+
+        // Box2D specific
         float getScale() const;
         float getInverseScale() const;
-
         float getGravity() const;
 
     protected:
         std::shared_ptr<b2World> getRawBox2DWorld();
         b2Body* getGroundBody();
-        std::recursive_mutex world_mutex;
     private:
+        mutable std::recursive_mutex _world_mutex;
         b2Body* _b2_ground_body;
         std::shared_ptr<b2World> _world;
         LoggerPtr _logger;
@@ -488,13 +576,14 @@ namespace sim_env{
         int _position_steps;
         std::map<std::string, Box2DObjectPtr> _objects;
         std::map<std::string, Box2DRobotPtr> _robots;
+        Box2DCollisionCheckerPtr _collision_checker;
+        std::stack<WorldState> _state_stack;
 
         void eraseWorld();
         void createWorld(const Box2DEnvironmentDescription& env_desc);
         void createNewRobot(const Box2DRobotDescription& robot_desc);
         void createNewObject(const Box2DObjectDescription& object_desc);
         void createGround(const Eigen::Vector4f& world_bounds);
-
     };
 
 }
