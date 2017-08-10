@@ -1,0 +1,18 @@
+name: test_robot_simple
+base_actuation:
+  translational_velocity_limits: [-10.0, 10.0]
+  translational_acceleration_limits: [-1.8, 1.8]
+  rotational_velocity_limits: [-3.14, 3.14]
+  rotational_acceleration_limits: [-1.4, 1.4]
+  use_center_of_mass: true
+links:
+  - name: test_robot_base
+    geometry:
+      - [0.0, 0.0, 0.8, 0.0, 0.8, 0.2, 0.0, 0.2]
+      - [0.0, 0.0, 0.4, -0.4, 0.8, 0.0]
+    mass: 10.1
+    trans_friction: 0.1
+    rot_friction: 0.0
+    restitution: 1.0
+    contact_friction: 0.1
+joints:
