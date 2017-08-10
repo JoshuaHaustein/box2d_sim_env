@@ -65,8 +65,6 @@ namespace sim_env{
     class Box2DCollidable {
         friend class Box2DCollisionChecker;
     protected:
-        // TODO do we need this intermediate interface?
-        // TODO here we could define the interface that we need to check whether two Box2DEntities collide
         /**
          * Returns all b2Bodies that this collidable contains.
          * @param bodies list of all b2Bodies
