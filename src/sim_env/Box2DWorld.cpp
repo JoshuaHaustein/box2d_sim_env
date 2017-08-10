@@ -97,21 +97,6 @@ void Box2DLink::destroy(const std::shared_ptr<b2World>& b2world) {
     _destroyed = true;
 }
 
-bool Box2DLink::checkCollision(CollidablePtr other) {
-    Box2DWorldPtr world = getBox2DWorld();
-    return world->checkCollision(shared_from_this(), other);
-}
-
-bool Box2DLink::checkCollision(const std::vector<CollidablePtr> &others) {
-    Box2DWorldPtr world = getBox2DWorld();
-    return world->checkCollision(shared_from_this(), others);
-}
-
-bool Box2DLink::checkCollision() {
-    Box2DWorldPtr world = getBox2DWorld();
-    return world->checkCollision(shared_from_this());
-}
-
 std::string Box2DLink::getName() const {
     return _name;
 }
@@ -390,6 +375,40 @@ void Box2DLink::propagateVelocityChange(const float& dx,
 
 void Box2DLink::getBodies(std::vector<b2Body *> &bodies) {
     bodies.push_back(_body);
+}
+
+bool Box2DLink::checkCollision() {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this());
+}
+
+bool Box2DLink::checkCollision(std::vector<Contact> &contacts) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this());
+}
+
+bool Box2DLink::checkCollision(const std::vector<LinkPtr> &other_links) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this(), other_links);
+}
+
+bool Box2DLink::checkCollision(const std::vector<LinkPtr> &other_links, std::vector<Contact> &contacts) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this(), other_links, contacts);
+}
+
+bool Box2DLink::checkCollision(const std::vector<ObjectPtr> &other_objects) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this(), other_objects);
+}
+
+bool Box2DLink::checkCollision(const std::vector<ObjectPtr> &other_objects, std::vector<Contact> &contacts) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this(), other_objects, contacts);
+}
+
+LinkPtr Box2DLink::getLink(b2Body *body) {
+    return shared_from_this();
 }
 
 
@@ -858,14 +877,29 @@ bool Box2DObject::checkCollision() {
     return world->checkCollision(shared_from_this());
 }
 
-bool Box2DObject::checkCollision(CollidablePtr other_object) {
+bool Box2DObject::checkCollision(std::vector<Contact> &contacts) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this(), contacts);
+}
+
+bool Box2DObject::checkCollision(ObjectPtr other_object) {
     Box2DWorldPtr world = getBox2DWorld();
     return world->checkCollision(shared_from_this(), other_object);
 }
 
-bool Box2DObject::checkCollision(const std::vector<CollidablePtr> &object_list) {
+bool Box2DObject::checkCollision(ObjectPtr other_object, std::vector<Contact>& contacts) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this(), other_object, contacts);
+}
+
+bool Box2DObject::checkCollision(const std::vector<ObjectPtr> &object_list) {
     Box2DWorldPtr world = getBox2DWorld();
     return world->checkCollision(shared_from_this(), object_list);
+}
+
+bool Box2DObject::checkCollision(const std::vector<ObjectPtr> &other_objects, std::vector<Contact> &contacts) {
+    Box2DWorldPtr world = getBox2DWorld();
+    return world->checkCollision(shared_from_this(), other_objects, contacts);
 }
 
 void Box2DObject::setActiveDOFs(const Eigen::VectorXi &indices) {
@@ -1228,6 +1262,17 @@ void Box2DObject::setState(const ObjectState &object_state) {
     setDOFVelocities(object_state.dof_velocities, all_indices);
 }
 
+LinkPtr Box2DObject::getLink(b2Body *body) {
+    //TODO maybe make this more efficient using a map
+    for (auto link_iter : _links) {
+        if (link_iter.second->getBody() == body) {
+            return link_iter.second;
+        }
+    }
+    return sim_env::LinkPtr(nullptr);
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DRobot members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -1323,12 +1368,24 @@ bool Box2DRobot::checkCollision() {
     return _robot_object->checkCollision();
 }
 
-bool Box2DRobot::checkCollision(CollidablePtr other) {
-    return _robot_object->checkCollision(other);
+bool Box2DRobot::checkCollision(std::vector<Contact> &contacts) {
+    return _robot_object->checkCollision(contacts);
 }
 
-bool Box2DRobot::checkCollision(const std::vector<CollidablePtr> &others) {
+bool Box2DRobot::checkCollision(const std::vector<ObjectPtr> &others) {
     return _robot_object->checkCollision(others);
+}
+
+bool Box2DRobot::checkCollision(ObjectPtr other_object) {
+    return _robot_object->checkCollision(other_object);
+}
+
+bool Box2DRobot::checkCollision(ObjectPtr other_object, std::vector<Contact> &contacts) {
+    return _robot_object->checkCollision(other_object, contacts);
+}
+
+bool Box2DRobot::checkCollision(const std::vector<ObjectPtr> &other_objects, std::vector<Contact> &contacts) {
+    return _robot_object->checkCollision(other_objects, contacts);
 }
 
 EntityType Box2DRobot::getType() const {
@@ -1527,27 +1584,39 @@ void Box2DRobot::setState(const ObjectState &object_state) {
     _robot_object->setState(object_state);
 }
 
+LinkPtr Box2DRobot::getLink(b2Body *body) {
+    return _robot_object->getLink(body);
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DCollisionChecker members *///////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 Box2DCollisionChecker::Box2DCollisionChecker(Box2DWorldPtr world) {
     _weak_world = world;
+    _scale = world->getInverseScale();
 }
 
 Box2DCollisionChecker::~Box2DCollisionChecker() {
 }
 
-bool Box2DCollisionChecker::checkCollision(CollidablePtr collidable_a, CollidablePtr collidable_b) {
-    std::vector<CollidablePtr> collidables;
+bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a, Box2DCollidablePtr collidable_b) {
+    std::vector<Box2DCollidablePtr> collidables;
     collidables.push_back(collidable_b);
     return checkCollision(collidable_a, collidables);
 }
 
-bool Box2DCollisionChecker::checkCollision(CollidablePtr collidable) {
-    Box2DCollidablePtr box2d_collidable = castCollidable(collidable);
+bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a, Box2DCollidablePtr collidable_b,
+                                           std::vector<Contact>& contacts) {
+    std::vector<Box2DCollidablePtr> collidables;
+    collidables.push_back(collidable_b);
+    return checkCollision(collidable_a, collidables, contacts);
+}
+
+bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable) {
     updateContacts();
     std::vector<b2Body*> bodies;
-    box2d_collidable->getBodies(bodies);
+    collidable->getBodies(bodies);
     for (b2Body* body : bodies) {
         if (hasContacts(body)) {
             return true;
@@ -1556,19 +1625,51 @@ bool Box2DCollisionChecker::checkCollision(CollidablePtr collidable) {
     return false;
 }
 
-bool Box2DCollisionChecker::checkCollision(CollidablePtr collidable_a, const std::vector<CollidablePtr> &collidables) {
+bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable, std::vector<Contact> &contacts) {
+    bool is_in_collision = false;
+    Box2DWorldPtr world = _weak_world.lock();
+    if (!world) {
+        throw std::logic_error("[sim_env::Box2DCollisionChecker::checkCollision] Could not access Box2DWorld");
+    }
+    updateContacts();
+    std::vector<b2Body*> bodies;
+    collidable->getBodies(bodies);
+    for (b2Body* body : bodies) {
+        LinkPtr link_a = getLink(body, collidable);
+        ObjectPtr object_a = link_a->getObject();
+        auto maps_iter = _contact_maps.find(body);
+        if (maps_iter != _contact_maps.end()) {
+            is_in_collision = true;
+            ContactMap& contact_map = maps_iter->second;
+            for (auto contact_map_iter : contact_map) {
+                b2Body* other_body = contact_map_iter.first;
+                Contact contact = contact_map_iter.second;
+                contact.link_a = link_a;
+                contact.object_a = object_a;
+                LinkPtr link = getLink(other_body, nullptr);
+                if (!link) {
+                    throw std::logic_error("[sim_env::Box2DCollisionChecker::checkCollision] Could not retrieve link for a colliding Box2D body.");
+                }
+                contact.link_b = link;
+                contact.object_b = link->getObject();
+                contacts.push_back(contact);
+            }
+        }
+    }
+    return is_in_collision;
+}
+
+bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a, const std::vector<Box2DCollidablePtr> &collidables) {
     // compute contacts
     updateContacts();
     // we only need to get the bodies of collidable a once
-    Box2DCollidablePtr box2d_collidable_a = castCollidable(collidable_a);
     std::vector<b2Body*> bodies_a;
-    box2d_collidable_a->getBodies(bodies_a);
+    collidable_a->getBodies(bodies_a);
     // now we need to run over each collidable in the list and check for collisions
-    for (CollidablePtr collidable : collidables) {
-        Box2DCollidablePtr box2d_collidable_b = castCollidable(collidable);
+    for (Box2DCollidablePtr collidable_b : collidables) {
         // now check if the specified collidables collide
         std::vector<b2Body*> bodies_b;
-        box2d_collidable_b->getBodies(bodies_b);
+        collidable_b->getBodies(bodies_b);
         // now run over each body pair and check whether it is colliding
         for (b2Body* body_a : bodies_a) {
             auto iter_a = _contact_maps.find(body_a);
@@ -1590,34 +1691,68 @@ bool Box2DCollisionChecker::checkCollision(CollidablePtr collidable_a, const std
     return false;
 }
 
+bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a,
+                                           const std::vector<Box2DCollidablePtr> &collidables,
+                                           std::vector<Contact> &contacts) {
+    bool is_in_collision = false;
+    // compute contacts
+    updateContacts();
+    // we only need to get the bodies of collidable a once
+    std::vector<b2Body*> bodies_a;
+    collidable_a->getBodies(bodies_a);
+    // now we need to run over each collidable in the list and check for collisions
+    for (Box2DCollidablePtr collidable_b : collidables) {
+        // now check if the specified collidables collide
+        std::vector<b2Body*> bodies_b;
+        collidable_b->getBodies(bodies_b);
+        // now run over each body pair and check whether it is colliding
+        for (b2Body* body_a : bodies_a) {
+            LinkPtr link_a = collidable_a->getLink(body_a);
+            ObjectPtr object_a = link_a->getObject();
+            auto iter_a = _contact_maps.find(body_a);
+            if (iter_a != _contact_maps.end()) {
+                // body_a has some contacts
+                ContactMap& body_a_contacts = iter_a->second;
+                // let's check whether any of b's bodies is in contact with this body
+                for (b2Body* body_b : bodies_b) {
+                    auto iter_b = body_a_contacts.find(body_b);
+                    // if yes add the contact
+                    if (iter_b != body_a_contacts.end()) {
+                        is_in_collision = true;
+                        Contact contact = iter_b->second;
+                        contact.object_a = object_a;
+                        contact.link_a = link_a;
+                        LinkPtr link_b = getLink(body_b, collidable_b);
+                        contact.link_b = link_b;
+                        contact.object_b = link_b->getObject();
+                        contacts.push_back(contact);
+                    }
+                }
+            }
+        }
+    }
+    return is_in_collision;
+}
+
 void Box2DCollisionChecker::BeginContact(b2Contact *contact) {
-    LoggerPtr logger = DefaultLogger::getInstance();
-    logger->logInfo("begin contact");
 }
 
 void Box2DCollisionChecker::EndContact(b2Contact *contact) {
-    LoggerPtr logger = DefaultLogger::getInstance();
-    logger->logInfo("end contact");
 }
 
 void Box2DCollisionChecker::PreSolve(b2Contact *contact, const b2Manifold *oldManifold) {
-    LoggerPtr logger = DefaultLogger::getInstance();
-    logger->logInfo("pre solve");
     if (_record_contacts) {
         b2Body* body_a = contact->GetFixtureA()->GetBody();
         b2Body* body_b = contact->GetFixtureB()->GetBody();
-        addContact(body_a, body_b);
-        addContact(body_b, body_a);
-        logger->logInfo("recorded contact");
+        addContact(body_a, body_b, contact);
+        addContact(body_b, body_a, contact);
     }
 }
 
 void Box2DCollisionChecker::PostSolve(b2Contact *contact, const b2ContactImpulse *impulse) {
-    LoggerPtr logger = DefaultLogger::getInstance();
-    logger->logInfo("post solve");
 }
 
-void Box2DCollisionChecker::addContact(b2Body* body_a, b2Body* body_b) {
+void Box2DCollisionChecker::addContact(b2Body* body_a, b2Body* body_b, b2Contact* contact) {
     // first ensure we have a contacts map for body a
     auto insert_result = _contact_maps.insert(std::pair<b2Body*, ContactMap>(body_a, ContactMap()));
     // insert result should be (iter, bool) with iter pointing at the ContactMap for body_a
@@ -1627,7 +1762,19 @@ void Box2DCollisionChecker::addContact(b2Body* body_a, b2Body* body_b) {
     auto iter_b = body_a_contacts.find(body_b);
     if (iter_b == body_a_contacts.end()) {
         // if not add it
-        body_a_contacts.insert(std::pair<b2Body*, bool>(body_b, true));
+        b2WorldManifold world_manifold;
+        contact->GetWorldManifold(&world_manifold);
+        Contact new_contact;
+        // contact point
+        new_contact.contact_point[0] = _scale * world_manifold.points[0].x;
+        new_contact.contact_point[1] = _scale * world_manifold.points[0].y;
+        new_contact.contact_point[2] = 0.0f;
+        // contact normal
+        new_contact.contact_normal[0] = _scale * world_manifold.normal.x;
+        new_contact.contact_normal[1] = _scale * world_manifold.normal.y;
+        new_contact.contact_normal[2] = 0.0f;
+        // we get the object ptr and link ptr later
+        body_a_contacts.insert(std::pair<b2Body*, Contact>(body_b, new_contact));
     }
     // since body_a_contacts is a reference, we are done
 }
@@ -1644,6 +1791,7 @@ bool Box2DCollisionChecker::areInContact(b2Body *body_a, b2Body *body_b) const {
 
 void Box2DCollisionChecker::updateContacts() {
     _contact_maps.clear();
+    _body_to_link_map.clear();
     _record_contacts = true;
     Box2DWorldPtr world = _weak_world.lock();
     if (!world) {
@@ -1657,21 +1805,47 @@ void Box2DCollisionChecker::updateContacts() {
     _record_contacts = false;
 }
 
-Box2DCollidablePtr Box2DCollisionChecker::castCollidable(CollidablePtr collidable) const {
-    Box2DCollidablePtr box2d_collidable = std::dynamic_pointer_cast<Box2DCollidable>(collidable);
-    if (!box2d_collidable) {
-        // we can only operate on Box2DCollidables.
-        // This is a breach of polymorphism. However, this is clearly stated in the documentation of sim_env::SimEnv.h
-        throw std::logic_error("Could not cast provided Collidable to Box2DCollidable."
-                               "Only Box2DCollidable are supported.");
-    }
-    return box2d_collidable;
-}
-
 bool Box2DCollisionChecker::hasContacts(b2Body *body) const {
     auto iter = _contact_maps.find(body);
     return iter != _contact_maps.end();
 }
+
+LinkPtr Box2DCollisionChecker::getLink(b2Body *body, Box2DCollidablePtr collidable) {
+    // we need access to the box2d world
+    Box2DWorldPtr world = _weak_world.lock();
+    if (!world) {
+        throw std::logic_error("[sim_env::Box2DCollisionChecker::checkCollision] Could not access Box2DWorld");
+    }
+    LoggerPtr logger = world->getLogger();
+
+    // first check whether we have the link already in our cache
+    auto iter = _body_to_link_map.find(body);
+    if (iter != _body_to_link_map.end()) {
+        return iter->second.lock();
+    }
+    // else check whether the collidable can be used to retrieve it
+    if (collidable) {
+        LinkPtr link = collidable->getLink(body);
+        if (link) {
+            _body_to_link_map[body] = link;
+            return link;
+        } else {
+            logger->logWarn("Collidable could not provide us with a link for the given body.",
+                            "[sim_env::Box2DCollisionChecker::getLink]");
+        }
+    }
+    // as a last resort ask the world to search for a link
+    LinkPtr link = world->getLink(body);
+    if (link) {
+        _body_to_link_map[body] = link;
+        return link;
+    }
+    logger->logWarn("Could not retrieve link for the provided body",
+                    "[sim_env::Box2DCollisionChecker::getLink");
+    return nullptr;
+}
+
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1803,18 +1977,6 @@ float Box2DWorld::getInverseScale() const {
 
 float Box2DWorld::getGravity() const {
     return GRAVITY * getScale();
-}
-
-bool Box2DWorld::checkCollision(CollidablePtr collidable_a, CollidablePtr collidable_b) {
-    return _collision_checker->checkCollision(collidable_a, collidable_b);
-}
-
-bool Box2DWorld::checkCollision(CollidablePtr collidable) {
-    return _collision_checker->checkCollision(collidable);
-}
-
-bool Box2DWorld::checkCollision(CollidablePtr collidable_a, const std::vector<CollidablePtr> &collidables) {
-    return _collision_checker->checkCollision(collidable_a, collidables);
 }
 
 std::recursive_mutex& Box2DWorld::getMutex() const {
@@ -1985,7 +2147,144 @@ void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
     _world->SetContactListener(contact_listener);
 }
 
+bool Box2DWorld::checkCollision(ObjectPtr object_a, ObjectPtr object_b) {
+    Box2DCollidablePtr collidable_a = castCollidable(object_a);
+    Box2DCollidablePtr collidable_b = castCollidable(object_b);
+    return _collision_checker->checkCollision(collidable_a, collidable_b);
+}
+
+bool Box2DWorld::checkCollision(ObjectPtr object_a, ObjectPtr object_b, std::vector<Contact> &contacts) {
+    Box2DCollidablePtr collidable_a = castCollidable(object_a);
+    Box2DCollidablePtr collidable_b = castCollidable(object_b);
+    return _collision_checker->checkCollision(collidable_a, collidable_b, contacts);
+}
+
+bool Box2DWorld::checkCollision(ObjectPtr object_a, LinkPtr link_b) {
+    Box2DCollidablePtr collidable_a = castCollidable(object_a);
+    Box2DCollidablePtr collidable_b = castCollidable(link_b);
+    return _collision_checker->checkCollision(collidable_a, collidable_b);
+}
+
+bool Box2DWorld::checkCollision(ObjectPtr object_a, LinkPtr link_b, std::vector<Contact> &contacts) {
+    Box2DCollidablePtr collidable_a = castCollidable(object_a);
+    Box2DCollidablePtr collidable_b = castCollidable(link_b);
+    return _collision_checker->checkCollision(collidable_a, collidable_b, contacts);
+}
+
+bool Box2DWorld::checkCollision(ObjectPtr object) {
+    Box2DCollidablePtr collidable_b = castCollidable(object);
+    return _collision_checker->checkCollision(collidable_b);
+}
+
+bool Box2DWorld::checkCollision(ObjectPtr object, std::vector<Contact> &contacts) {
+    Box2DCollidablePtr collidable_b = castCollidable(object);
+    return _collision_checker->checkCollision(collidable_b, contacts);
+}
+
+bool Box2DWorld::checkCollision(ObjectPtr object_a, const std::vector<ObjectPtr> &other_objects) {
+    Box2DCollidablePtr collidable_a = castCollidable(object_a);
+    std::vector<Box2DCollidablePtr> collidables;
+    for (auto object : other_objects) {
+        collidables.push_back(castCollidable(object));
+    }
+    return _collision_checker->checkCollision(collidable_a, collidables);
+}
+
+bool Box2DWorld::checkCollision(ObjectPtr object_a, const std::vector<ObjectPtr> &other_objects,
+                                std::vector<Contact> &contacts) {
+    Box2DCollidablePtr collidable_a = castCollidable(object_a);
+    std::vector<Box2DCollidablePtr> collidables;
+    for (auto object : other_objects) {
+        collidables.push_back(castCollidable(object));
+    }
+    return _collision_checker->checkCollision(collidable_a, collidables, contacts);
+}
+
+bool Box2DWorld::checkCollision(LinkPtr link, const std::vector<LinkPtr> &other_links) {
+    Box2DCollidablePtr collidable_a = castCollidable(link);
+    std::vector<Box2DCollidablePtr> collidables;
+    for (auto object : other_links) {
+        collidables.push_back(castCollidable(object));
+    }
+    return _collision_checker->checkCollision(collidable_a, collidables);
+}
+
+bool Box2DWorld::checkCollision(LinkPtr link, const std::vector<LinkPtr> &other_links, std::vector<Contact> &contacts) {
+    Box2DCollidablePtr collidable_a = castCollidable(link);
+    std::vector<Box2DCollidablePtr> collidables;
+    for (auto object : other_links) {
+        collidables.push_back(castCollidable(object));
+    }
+    return _collision_checker->checkCollision(collidable_a, collidables, contacts);
+}
+
+bool Box2DWorld::checkCollision(LinkPtr link_a, const std::vector<ObjectPtr> &other_objects) {
+    Box2DCollidablePtr collidable_a = castCollidable(link_a);
+    std::vector<Box2DCollidablePtr> collidables;
+    for (auto object : other_objects) {
+        collidables.push_back(castCollidable(object));
+    }
+    return _collision_checker->checkCollision(collidable_a, collidables);
+}
+
+bool Box2DWorld::checkCollision(LinkPtr link_a, const std::vector<ObjectPtr> &other_objects,
+                                std::vector<Contact> &contacts) {
+    Box2DCollidablePtr collidable_a = castCollidable(link_a);
+    std::vector<Box2DCollidablePtr> collidables;
+    for (auto object : other_objects) {
+        collidables.push_back(castCollidable(object));
+    }
+    return _collision_checker->checkCollision(collidable_a, collidables, contacts);
+}
 
 
+bool Box2DWorld::checkCollision(LinkPtr link) {
+    Box2DCollidablePtr collidable_a = castCollidable(link);
+    return _collision_checker->checkCollision(collidable_a);
+}
 
+bool Box2DWorld::checkCollision(LinkPtr link, std::vector<Contact> &contacts) {
+    Box2DCollidablePtr collidable_a = castCollidable(link);
+    return _collision_checker->checkCollision(collidable_a, contacts);
+}
+
+Box2DCollidablePtr Box2DWorld::castCollidable(ObjectPtr object) const {
+    Box2DObjectPtr box2d_object = std::dynamic_pointer_cast<Box2DObject>(object);
+    if (not box2d_object) {
+        Box2DRobotPtr box2d_robot = std::dynamic_pointer_cast<Box2DRobot>(object);
+        if (not box2d_robot) {
+            throw std::logic_error("[sim_env::Box2DWorld::castCollidable] Could not cast ObjectPtr to "
+                                   "either Box2DObject or Box2DRobot. Whatever type it is, it is not supported.");
+        }
+        // else just return the robot (it is upcasted to Box2DCollidable automatically)
+        return box2d_robot;
+    }
+    // else just return the object (it is upcasted to Box2DCollidable automatically)
+    return box2d_object;
+}
+
+Box2DCollidablePtr Box2DWorld::castCollidable(LinkPtr link) const {
+    Box2DLinkPtr box2d_link = std::dynamic_pointer_cast<Box2DLink>(link);
+    if (not box2d_link) {
+        throw std::logic_error("[sim_env::Box2DWorld::castCollidable] Could not cast LinkPtr to "
+                               "either Box2DLink. Whatever type it is, it is not supported.");
+    }
+    return sim_env::Box2DCollidablePtr();
+}
+
+LinkPtr Box2DWorld::getLink(b2Body *body) {
+    for (auto object_iter : _objects) {
+        LinkPtr link = object_iter.second->getLink(body);
+        if (link) {
+            return link;
+        }
+    }
+    for (auto robot_iter : _robots) {
+        LinkPtr link = robot_iter.second->getLink(body);
+        if (link) {
+            return link;
+        }
+    }
+    return nullptr;
+}
 

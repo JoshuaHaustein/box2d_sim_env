@@ -62,7 +62,7 @@ namespace sim_env{
         typedef std::shared_ptr<const Box2DDrawingInterface> Box2DDrawingInterfaceConstPtr;
     }
 
-    class Box2DCollidable : public virtual Collidable {
+    class Box2DCollidable {
         friend class Box2DCollisionChecker;
     protected:
         // TODO do we need this intermediate interface?
@@ -72,6 +72,16 @@ namespace sim_env{
          * @param bodies list of all b2Bodies
          */
         virtual void getBodies(std::vector<b2Body*>& bodies) = 0;
+
+        /**
+         * Returns the link associated with the given body.
+         * If this collidable is a link, it returns itself.
+         * If this collidable is an object, it returns the link with this body.
+         * If this collidable is not associated with the given body, null_ptr is returned.
+         * @param body - body to get the link for
+         * @return - shared pointer to the link, or null_ptr
+         */
+        virtual LinkPtr getLink(b2Body* body) = 0;
     };
 
     /**
@@ -93,8 +103,11 @@ namespace sim_env{
         ~Box2DLink();
 
         bool checkCollision() override;
-        bool checkCollision(CollidablePtr other) override;
-        bool checkCollision(const std::vector<CollidablePtr> &others) override;
+        bool checkCollision(std::vector<Contact> &contacts) override;
+        bool checkCollision(const std::vector<LinkPtr> &other_links) override;
+        bool checkCollision(const std::vector<LinkPtr> &other_links, std::vector<Contact> &contacts) override;
+        bool checkCollision(const std::vector<ObjectPtr> &other_objects) override;
+        bool checkCollision(const std::vector<ObjectPtr> &other_objects, std::vector<Contact> &contacts) override;
 
         std::string getName() const override;
         EntityType getType() const override;
@@ -124,6 +137,7 @@ namespace sim_env{
         float getMass() const;
         float getInertia() const;
         Box2DWorldPtr getBox2DWorld() const;
+
 //        Box2DObjectPtr getBox2DObject() const;
 
     protected:
@@ -155,6 +169,8 @@ namespace sim_env{
         void setOriginToCenterOfMass();
         // Adds the body of this link to the given vector - used for collision checks
         void getBodies(std::vector<b2Body *> &bodies) override;
+        // returns a pointer to this link
+        LinkPtr getLink(b2Body* body) override;
     private:
         Box2DWorldWeakPtr _world;
         b2Body* _body;
@@ -280,8 +296,11 @@ namespace sim_env{
         virtual void setTransform(const Eigen::Affine3f& tf) override;
 
         bool checkCollision() override;
-        bool checkCollision(CollidablePtr other_object) override;
-        bool checkCollision(const std::vector<CollidablePtr>& object_list) override;
+        bool checkCollision(std::vector<Contact> &contacts) override;
+        bool checkCollision(ObjectPtr other_object) override;
+        bool checkCollision(ObjectPtr other_object, std::vector<Contact>& contacts) override;
+        bool checkCollision(const std::vector<ObjectPtr> &other_objects) override;
+        bool checkCollision(const std::vector<ObjectPtr> &other_objects, std::vector<Contact> &contacts) override;
 
         virtual void setActiveDOFs(const Eigen::VectorXi& indices) override;
         virtual Eigen::VectorXi getActiveDOFs() const override;
@@ -340,6 +359,7 @@ namespace sim_env{
 
         void setState(const ObjectState &object_state) override;
 
+
     protected:
         // ensure only friend classes can construct this
         Box2DObject(const Box2DObjectDescription& obj_desc, Box2DWorldPtr world);
@@ -349,6 +369,7 @@ namespace sim_env{
         Box2DJointPtr getBox2DJoint(unsigned int idx);
         // puts all link bodies into the given list (for collision checking)
         void getBodies(std::vector<b2Body *> &bodies) override;
+        LinkPtr getLink(b2Body* body) override;
 
         // these can be overwritten by Box2DRobot
         DOFInformation _x_dof_info;
@@ -406,8 +427,11 @@ namespace sim_env{
         bool isStatic() const override;
         // collision checking
         bool checkCollision() override;
-        bool checkCollision(CollidablePtr other) override;
-        bool checkCollision(const std::vector<CollidablePtr> &others) override;
+        bool checkCollision(std::vector<Contact> &contacts) override;
+        bool checkCollision(ObjectPtr other_object) override;
+        bool checkCollision(ObjectPtr other_object, std::vector<Contact>& contacts) override;
+        bool checkCollision(const std::vector<ObjectPtr> &other_objects) override;
+        bool checkCollision(const std::vector<ObjectPtr> &other_objects, std::vector<Contact> &contacts) override;
         // links
         virtual void getLinks(std::vector<LinkPtr>& links) override;
         virtual void getLinks(std::vector<LinkConstPtr>& links) const override;
@@ -444,6 +468,7 @@ namespace sim_env{
         void control(float timestep);
         // retrieve all box2d bodies (for collision checking)
         void getBodies(std::vector<b2Body *> &bodies) override;
+        LinkPtr getLink(b2Body* body) override;
 
     private:
         bool _destroyed;
@@ -465,14 +490,31 @@ namespace sim_env{
          * @param collidable_b
          * @return true iff there is a collision between both collidables
          */
-        bool checkCollision(CollidablePtr collidable_a, CollidablePtr collidable_b);
+        bool checkCollision(Box2DCollidablePtr collidable_a, Box2DCollidablePtr collidable_b);
+
+        /**
+         * Checks whether both provided collidables collide.
+         * @param collidable_a
+         * @param collidable_b
+         * @param contacts - all detected contacts are stored in this list
+         * @return true iff there is a collision between both collidables
+         */
+        bool checkCollision(Box2DCollidablePtr collidable_a, Box2DCollidablePtr collidable_b, std::vector<Contact>& contacts);
 
         /**
          * Checks whether both provided collidables collide.
          * @param collidable_a
          * @return true iff collidable is in collision with any other object
          */
-        bool checkCollision(CollidablePtr collidable);
+        bool checkCollision(Box2DCollidablePtr collidable);
+
+        /**
+         * Checks whether both provided collidables collide.
+         * @param collidable_a
+         * @param contacts - all detected contacts are stored in this list
+         * @return true iff collidable is in collision with any other object
+         */
+        bool checkCollision(Box2DCollidablePtr collidable, std::vector<Contact>& contacts);
 
         /**
          * Checks whether collidable_a is in collision with any of the provided collidables
@@ -480,7 +522,18 @@ namespace sim_env{
          * @param collidables
          * @return  true iff collidable_a collides with any of the provided objects in collidables
          */
-        bool checkCollision(CollidablePtr collidable_a, const std::vector<CollidablePtr>& collidables);
+        bool checkCollision(Box2DCollidablePtr collidable_a, const std::vector<Box2DCollidablePtr>& collidables);
+
+        /**
+         * Checks whether collidable_a is in collision with any of the provided collidables
+         * @param collidable_a
+         * @param collidables
+         * @param contacts - all detected contacts are stored in this list
+         * @return  true iff collidable_a collides with any of the provided objects in collidables
+         */
+        bool checkCollision(Box2DCollidablePtr collidable_a,
+                            const std::vector<Box2DCollidablePtr>& collidables,
+                            std::vector<Contact>& contacts);
 
         // b2ContactListener
         void BeginContact(b2Contact* contact);
@@ -490,17 +543,19 @@ namespace sim_env{
     private:
         Box2DWorldWeakPtr _weak_world;
         bool _record_contacts;
-        typedef std::map<b2Body*, bool> ContactMap;
+        float _scale;
+        typedef std::map<b2Body*, Contact> ContactMap;
         std::map<b2Body*, ContactMap> _contact_maps;
+        std::map<b2Body*, LinkWeakPtr> _body_to_link_map;
 
         // TODO instead of always updating all contacts, we could listen to the world and only update
         // TODO contacts if there were changes
         void updateContacts();
         // TODO maybe we can make some of these inline?
-        void addContact(b2Body* body_a, b2Body* body_b);
+        void addContact(b2Body* body_a, b2Body* body_b, b2Contact* contact);
         bool areInContact(b2Body* body_a, b2Body* body_b) const;
         bool hasContacts(b2Body* body) const;
-        Box2DCollidablePtr castCollidable(CollidablePtr collidable) const;
+        LinkPtr getLink(b2Body* body, Box2DCollidablePtr collidable);
     };
 
     /**
@@ -511,6 +566,7 @@ namespace sim_env{
         friend class Box2DJoint;
         friend class Box2DObject;
         friend class Box2DRobot;
+        friend class Box2DCollisionChecker;
     public:
         static constexpr float GROUND_DEFAULT_MIN_X = -100.0f;
         static constexpr float GROUND_DEFAULT_MIN_Y = -100.0f;
@@ -546,10 +602,23 @@ namespace sim_env{
         WorldViewerPtr getViewer() override;
         LoggerPtr getLogger() override;
 
-        bool checkCollision(CollidablePtr collidable_a, CollidablePtr collidable_b) override;
-        bool checkCollision(CollidablePtr collidable) override;
-        bool checkCollision(CollidablePtr collidable_a,
-                            const std::vector<CollidablePtr> &collidables) override;
+        bool checkCollision(LinkPtr link) override;
+        bool checkCollision(LinkPtr link, std::vector<Contact> &contacts) override;
+        bool checkCollision(LinkPtr link, const std::vector<LinkPtr> &other_links) override;
+        bool checkCollision(LinkPtr link, const std::vector<LinkPtr> &other_links,
+                            std::vector<Contact> &contacts) override;
+        bool checkCollision(ObjectPtr object_a, ObjectPtr object_b) override;
+        bool checkCollision(ObjectPtr object_a, ObjectPtr object_b, std::vector<Contact> &contacts) override;
+        bool checkCollision(ObjectPtr object_a, LinkPtr link_b) override;
+        bool checkCollision(ObjectPtr object_a, LinkPtr link_b, std::vector<Contact> &contacts) override;
+        bool checkCollision(ObjectPtr object) override;
+        bool checkCollision(ObjectPtr object, std::vector<Contact> &contacts) override;
+        bool checkCollision(ObjectPtr object_a, const std::vector<ObjectPtr> &other_objects) override;
+        bool checkCollision(ObjectPtr object_a, const std::vector<ObjectPtr> &other_objects,
+                            std::vector<Contact> &contacts) override;
+        bool checkCollision(LinkPtr link_a, const std::vector<ObjectPtr> &other_objects) override;
+        bool checkCollision(LinkPtr link_a, const std::vector<ObjectPtr> &other_objects,
+                            std::vector<Contact> &contacts) override;
         std::recursive_mutex& getMutex() const;
         void saveState();
         bool restoreState();
@@ -565,6 +634,7 @@ namespace sim_env{
     protected:
         std::shared_ptr<b2World> getRawBox2DWorld();
         b2Body* getGroundBody();
+        LinkPtr getLink(b2Body* body);
     private:
         mutable std::recursive_mutex _world_mutex;
         b2Body* _b2_ground_body;
@@ -584,6 +654,8 @@ namespace sim_env{
         void createNewRobot(const Box2DRobotDescription& robot_desc);
         void createNewObject(const Box2DObjectDescription& object_desc);
         void createGround(const Eigen::Vector4f& world_bounds);
+        Box2DCollidablePtr castCollidable(ObjectPtr object) const;
+        Box2DCollidablePtr castCollidable(LinkPtr link) const;
     };
 
 }

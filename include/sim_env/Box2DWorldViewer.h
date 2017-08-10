@@ -20,6 +20,7 @@
 #include <QtGui/QFormLayout>
 // stl includes
 #include <thread>
+#include <QtGui/QLabel>
 
 namespace sim_env {
     namespace viewer {
@@ -139,11 +140,12 @@ namespace sim_env {
             QFormLayout* _form_layout;
             QPushButton* _mode_button;
             LineEditChangeDetector* _line_edit_change_detector;
+            QLabel* _collision_display;
 
             void createBaseDOFEdits(ObjectPtr object);
             void synchView();
             void setSliderValue(QSlider* slider, float value, float min_value, float max_value);
-            void showValues();
+            void showValues(bool update_input_fields);
         };
 
         class Box2DControllerView : public QGroupBox {

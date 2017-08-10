@@ -270,6 +270,9 @@ sim_env::viewer::Box2DObjectStateView::Box2DObjectStateView(QWidget *parent):QGr
     _mode_button = new QPushButton("View");
     _mode_button->setCheckable(true);
     _form_layout->addRow("View Mode:", _mode_button);
+    _collision_display = new QLabel("");
+    _collision_display->setStyleSheet("QLabel {background-color: green;}");
+    _form_layout->addRow("Colliding objects:", _collision_display);
     QObject::connect(_mode_button, SIGNAL(clicked(bool)), this, SLOT(setViewMode(bool)));
 }
 
@@ -282,7 +285,7 @@ void sim_env::viewer::Box2DObjectStateView::setCurrentObject(sim_env::ObjectWeak
     synchView();
     _mode_button->setChecked(false);
     setViewMode(false);
-    showValues();
+    showValues(true);
 }
 
 void sim_env::viewer::Box2DObjectStateView::sliderChange(int value) {
@@ -391,9 +394,7 @@ void sim_env::viewer::Box2DObjectStateView::setViewMode(bool enable_edit) {
 }
 
 void sim_env::viewer::Box2DObjectStateView::stateUpdate() {
-    if (not _mode_button->isChecked()) {
-        showValues();
-    }
+    showValues(not _mode_button->isChecked());
 }
 
 void sim_env::viewer::Box2DObjectStateView::createBaseDOFEdits(ObjectPtr object) {
@@ -509,7 +510,7 @@ void sim_env::viewer::Box2DObjectStateView::setSliderValue(QSlider* slider,
     slider->blockSignals(false);
 }
 
-void sim_env::viewer::Box2DObjectStateView::showValues() {
+void sim_env::viewer::Box2DObjectStateView::showValues(bool update_input_fields) {
     if (_current_object.expired()) {
         auto logger = DefaultLogger::getInstance();
         logger->logDebug("[sim_env::viewer::Box2DObjectStateView::showValues] Could not synchronize view "
@@ -517,48 +518,56 @@ void sim_env::viewer::Box2DObjectStateView::showValues() {
         return;
     }
     ObjectPtr object = _current_object.lock();
-    Eigen::VectorXi dof_indices = object->getDOFIndices();
-    Eigen::VectorXf configuration = object->getDOFPositions(dof_indices);
-    Eigen::VectorXf velocities = object->getDOFVelocities(dof_indices);
-    Eigen::ArrayX2f position_limits = object->getDOFPositionLimits(dof_indices);
-    Eigen::ArrayX2f velocity_limits = object->getDOFVelocityLimits(dof_indices);
 
-    // get pose of the object
-    Eigen::Vector3f pose;
-    Eigen::Affine3f tf = object->getTransform();
-    pose[0] = tf.translation()(0);
-    pose[1] = tf.translation()(1);
-    pose[2] = std::acos(tf.rotation()(0, 0));
-    pose[2] = tf.rotation()(1, 0) > 0.0 ? pose[2] : -pose[2];
-    // write the pose into text fields
-    for (int i = 0; i < pose.size(); ++i) {
-        QString value("%L1");
-        value = value.arg(pose[i]);
-        _object_pose_edits.at(i)->setText(value);
-        value.setNum(0.0);
-        _object_velocity_edits.at(i)->setText(value);
-    }
-    // now read the rest of the configuration
-    for (int i = 0; i < object->getNumBaseDOFs(); ++i) {
-        // if the object is not static, the pose is part of the configuration
-        // and we care for its velocity in these DOFs
-        QString value("%L1");
-        value = value.arg(velocities[i]);
-        _object_velocity_edits.at(i)->setText(value);
-    }
+    if (update_input_fields) {
+        Eigen::VectorXi dof_indices = object->getDOFIndices();
+        Eigen::VectorXf configuration = object->getDOFPositions(dof_indices);
+        Eigen::VectorXf velocities = object->getDOFVelocities(dof_indices);
+        Eigen::ArrayX2f position_limits = object->getDOFPositionLimits(dof_indices);
+        Eigen::ArrayX2f velocity_limits = object->getDOFVelocityLimits(dof_indices);
 
-    for (unsigned int i = object->getNumBaseDOFs(); i < configuration.size(); ++i) {
-        QSlider* pos_slider = _joint_position_sliders.at(i - object->getNumBaseDOFs());
-        setSliderValue(pos_slider, configuration[i], position_limits(i, 0), position_limits(i, 1));
-        QString value("%L1");
-        QLineEdit* vel_edit = _joint_velocity_edits.at(i - object->getNumBaseDOFs());
-        value = value.arg(velocities[i]);
-        vel_edit->setText(value);
+        // get pose of the object
+        Eigen::Vector3f pose;
+        Eigen::Affine3f tf = object->getTransform();
+        pose[0] = tf.translation()(0);
+        pose[1] = tf.translation()(1);
+        pose[2] = std::acos(tf.rotation()(0, 0));
+        pose[2] = tf.rotation()(1, 0) > 0.0 ? pose[2] : -pose[2];
+        // write the pose into text fields
+        for (int i = 0; i < pose.size(); ++i) {
+            QString value("%L1");
+            value = value.arg(pose[i]);
+            _object_pose_edits.at(i)->setText(value);
+            value.setNum(0.0);
+            _object_velocity_edits.at(i)->setText(value);
+        }
+        // now read the rest of the configuration
+        for (int i = 0; i < object->getNumBaseDOFs(); ++i) {
+            // if the object is not static, the pose is part of the configuration
+            // and we care for its velocity in these DOFs
+            QString value("%L1");
+            value = value.arg(velocities[i]);
+            _object_velocity_edits.at(i)->setText(value);
+        }
+
+        for (unsigned int i = object->getNumBaseDOFs(); i < configuration.size(); ++i) {
+            QSlider* pos_slider = _joint_position_sliders.at(i - object->getNumBaseDOFs());
+            setSliderValue(pos_slider, configuration[i], position_limits(i, 0), position_limits(i, 1));
+            QString value("%L1");
+            QLineEdit* vel_edit = _joint_velocity_edits.at(i - object->getNumBaseDOFs());
+            value = value.arg(velocities[i]);
+            vel_edit->setText(value);
+        }
     }
-    // TODO probably delete this again:
-    if (object->checkCollision()) {
-        LoggerPtr logger = object->getWorld()->getLogger();
-        logger->logWarn("Object is in collision");
+    std::vector<sim_env::Contact> contacts;
+    if (object->checkCollision(contacts)) {
+        _collision_display->setStyleSheet("QLabel {background-color: red};");
+        QString text("Found %L1 contacts");
+        text = text.arg(contacts.size());
+        _collision_display->setText(text);
+    } else {
+        _collision_display->setStyleSheet("QLabel {background-color: green};");
+        _collision_display->setText("No collision");
     }
 }
 
