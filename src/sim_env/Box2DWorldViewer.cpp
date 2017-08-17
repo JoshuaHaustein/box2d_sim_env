@@ -85,6 +85,8 @@ sim_env::viewer::Box2DRobotView::Box2DRobotView(sim_env::Box2DRobotPtr robot, Bo
     robot->getLinks(links);
     for (auto& link : links) {
         Box2DLinkConstPtr box2d_link = std::static_pointer_cast<const Box2DLink>(link);
+        // we can safely ignore the warning of link_view being unused here
+        // the link view is automatically added as child to this view
         Box2DLinkView* link_view = new Box2DLinkView(box2d_link, this);
     }
 }
@@ -897,7 +899,7 @@ sim_env::viewer::Box2DWorldView::Box2DWorldView(int width, int height, QWidget *
 sim_env::viewer::Box2DWorldView::~Box2DWorldView() {
 }
 
-void sim_env::viewer::Box2DWorldView::setBox2DWorld(sim_env::Box2DWorldConstPtr world) {
+void sim_env::viewer::Box2DWorldView::setBox2DWorld(sim_env::Box2DWorldPtr world) {
     _world = world;
     repopulate();
 }
@@ -909,7 +911,7 @@ void sim_env::viewer::Box2DWorldView::repopulate() {
                         "[sim_env::viewer::Box2DWorldView]");
         return;
     }
-    Box2DWorldConstPtr world = _world.lock();
+    Box2DWorldPtr world = _world.lock();
     // Create object views
     std::vector<ObjectPtr> objects;
     world->getObjects(objects, true);

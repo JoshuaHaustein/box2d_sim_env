@@ -550,7 +550,7 @@ void Box2DJoint::resetPosition(float value, bool child_joint_override) {
             break;
         }
         case JointType::Prismatic: {
-            b2PrismaticJoint* prismatic_joint = static_cast<b2PrismaticJoint*>(_joint);
+//            b2PrismaticJoint* prismatic_joint = static_cast<b2PrismaticJoint*>(_joint);
 //            prismatic_joint->GetJointTranslation();
             //TODO same here, so probably best if this can be done at the end of this switch-case block
             break;
@@ -1867,18 +1867,41 @@ void Box2DWorld::loadWorld(const std::string &path) {
     createWorld(env_desc);
 }
 
-RobotPtr Box2DWorld::getRobot(const std::string &name) const {
+RobotPtr Box2DWorld::getRobot(const std::string &name) {
     return getBox2DRobot(name);
 }
 
-Box2DRobotPtr Box2DWorld::getBox2DRobot(const std::string &name) const {
+RobotConstPtr Box2DWorld::getRobotConst(const std::string &name) const {
+    return getBox2DRobotConst(name);
+}
+
+Box2DRobotPtr Box2DWorld::getBox2DRobot(const std::string &name) {
     if (_robots.count(name)) {
         return _robots.at(name);
     }
     return nullptr;
 }
 
-ObjectPtr Box2DWorld::getObject(const std::string &name, bool exclude_robots) const {
+Box2DRobotConstPtr Box2DWorld::getBox2DRobotConst(const std::string &name) const {
+    if (_robots.count(name)) {
+        return _robots.at(name);
+    }
+    return nullptr;
+}
+
+void Box2DWorld::getRobots(std::vector<RobotPtr> &robots) {
+    for (auto &robot_map_iter : _robots) {
+        robots.push_back(robot_map_iter.second);
+    }
+}
+
+void Box2DWorld::getRobots(std::vector<RobotConstPtr> &robots) const {
+    for (auto &robot_map_iter : _robots) {
+        robots.push_back(robot_map_iter.second);
+    }
+}
+
+ObjectPtr Box2DWorld::getObject(const std::string &name, bool exclude_robots) {
     ObjectPtr object = getBox2DObject(name);
     if (not object and not exclude_robots) {
         if (_robots.count(name)) {
@@ -1888,14 +1911,31 @@ ObjectPtr Box2DWorld::getObject(const std::string &name, bool exclude_robots) co
     return object;
 }
 
-Box2DObjectPtr Box2DWorld::getBox2DObject(const std::string& name) const {
+ObjectConstPtr Box2DWorld::getObjectConst(const std::string &name, bool exclude_robots) const {
+    ObjectConstPtr object = getBox2DObjectConst(name);
+    if (not object and not exclude_robots) {
+        if (_robots.count(name)) {
+            object = _robots.at(name);
+        }
+    }
+    return object;
+}
+
+Box2DObjectPtr Box2DWorld::getBox2DObject(const std::string& name) {
     if (_objects.count(name)) {
         return _objects.at(name);
     }
     return nullptr;
 }
 
-void Box2DWorld::getObjects(std::vector<ObjectPtr> &objects, bool exclude_robots) const {
+Box2DObjectConstPtr Box2DWorld::getBox2DObjectConst(const std::string& name) const {
+    if (_objects.count(name)) {
+        return _objects.at(name);
+    }
+    return nullptr;
+}
+
+void Box2DWorld::getObjects(std::vector<ObjectPtr> &objects, bool exclude_robots) {
     if (!exclude_robots) {
         std::vector<RobotPtr> robots;
         getRobots(robots);
@@ -1906,9 +1946,14 @@ void Box2DWorld::getObjects(std::vector<ObjectPtr> &objects, bool exclude_robots
     }
 }
 
-void Box2DWorld::getRobots(std::vector<RobotPtr> &robots) const {
-    for (auto &robot_map_iter : _robots) {
-        robots.push_back(robot_map_iter.second);
+void Box2DWorld::getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_robots) const {
+    if (!exclude_robots) {
+        std::vector<RobotConstPtr> robots;
+        getRobots(robots);
+        objects.insert(objects.end(), robots.begin(), robots.end());
+    }
+    for (auto &obj_map_iter : _objects) {
+        objects.push_back(obj_map_iter.second);
     }
 }
 

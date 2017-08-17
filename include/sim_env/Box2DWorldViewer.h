@@ -193,7 +193,7 @@ namespace sim_env {
         public:
             Box2DWorldView(int width, int height, QWidget *parent = 0);
             ~Box2DWorldView();
-            void setBox2DWorld(Box2DWorldConstPtr world);
+            void setBox2DWorld(Box2DWorldPtr world);
             /**
              * Repopulates the visualized scene by recreating all child views based on the currently
              * set Box2D world.
@@ -216,7 +216,7 @@ namespace sim_env {
             QTimer* _refresh_timer;
             int _width;
             int _height;
-            Box2DWorldConstWeakPtr _world;
+            Box2DWorldWeakPtr _world;
             sim_env::ObjectWeakPtr _currently_selected_object;
             std::vector<Box2DObjectView *> _object_views;
             std::vector<Box2DRobotView *> _robot_views;

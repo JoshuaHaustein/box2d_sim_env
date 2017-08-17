@@ -35,7 +35,7 @@ catkin_package(
         INCLUDE_DIRS include
         LIBRARIES box2d_sim_env
         CATKIN_DEPENDS box2d_catkin sim_env
-        DEPENDS Eigen yaml-cpp
+        DEPENDS Eigen yaml-cpp Boost
 )
 
 ###########
@@ -46,6 +46,8 @@ set(CMAKE_CXX_COMPILER /usr/bin/clang++)
 set(CMAKE_CXX_STANDARD 11)
 add_definitions(-std=c++11)
 add_definitions(-Wno-deprecated-register)
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 #add_definitions(-fext-numeric-literals)
 
 ## Qt specific
