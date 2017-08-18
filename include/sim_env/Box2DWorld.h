@@ -603,6 +603,7 @@ namespace sim_env{
 
         WorldViewerPtr getViewer() override;
         LoggerPtr getLogger() override;
+        LoggerConstPtr getConstLogger() const override;
 
         bool checkCollision(LinkPtr link) override;
         bool checkCollision(LinkPtr link, std::vector<Contact> &contacts) override;

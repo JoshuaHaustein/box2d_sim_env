@@ -2006,6 +2006,10 @@ LoggerPtr Box2DWorld::getLogger() {
     return _logger;
 }
 
+LoggerConstPtr Box2DWorld::getConstLogger() const {
+    return _logger;
+}
+
 float Box2DWorld::getScale() const {
     return _scale;
 }
