@@ -17,12 +17,13 @@ namespace sim_env {
     public:
         Box2DRobotVelocityController(Box2DRobotPtr robot);
         ~Box2DRobotVelocityController();
-        void setTargetVelocity(const Eigen::VectorXf& velocity);
+        unsigned int getTargetDimension() override;
+        void setTargetVelocity(const Eigen::VectorXf& velocity) override;
         bool control(const Eigen::VectorXf& positions,
                      const Eigen::VectorXf& velocities,
                      float timestep,
                      RobotConstPtr robot,
-                     Eigen::VectorXf& output);
+                     Eigen::VectorXf& output) override;
 
     protected:
         Box2DRobotPtr lockRobot();

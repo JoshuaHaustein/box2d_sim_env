@@ -15,6 +15,11 @@ Box2DRobotVelocityController::Box2DRobotVelocityController(Box2DRobotPtr robot) 
 Box2DRobotVelocityController::~Box2DRobotVelocityController() {
 }
 
+unsigned int Box2DRobotVelocityController::getTargetDimension() {
+    Box2DRobotPtr robot = lockRobot();
+    return robot->getNumActiveDOFs();
+}
+
 void Box2DRobotVelocityController::setTargetVelocity(const Eigen::VectorXf& velocity) {
 
     Box2DRobotPtr robot = lockRobot();
@@ -127,3 +132,4 @@ LoggerPtr Box2DRobotVelocityController::getLogger() const {
     }
     return robot->getWorld()->getLogger();
 }
+

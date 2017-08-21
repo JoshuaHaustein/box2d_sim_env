@@ -319,6 +319,7 @@ namespace sim_env{
         virtual Eigen::ArrayX2f getDOFAccelerationLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
         virtual void setDOFVelocities(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
+        bool atRest(float threshold=0.0001f) const override;
 
         virtual bool isStatic() const override;
 
@@ -421,6 +422,7 @@ namespace sim_env{
         void setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices=Eigen::VectorXi()) override;
         virtual Eigen::ArrayX2f getDOFAccelerationLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
         bool isStatic() const override;
+        bool atRest(float threshold=0.0001f) const override;
         // collision checking
         bool checkCollision() override;
         bool checkCollision(std::vector<Contact> &contacts) override;
@@ -544,7 +546,7 @@ namespace sim_env{
         std::unordered_map<b2Body*, ContactMap> _contact_maps;
         std::unordered_map<b2Body*, LinkWeakPtr> _body_to_link_map;
 
-        // TODO instead of always updating all contacts, we could listen to the world and only update
+        // TODO instead of always updating all contacts, we listen to the world and only update
         // TODO contacts if there were changes
         void updateContacts();
         // TODO maybe we can make some of these inline?
@@ -600,6 +602,7 @@ namespace sim_env{
         float getPhysicsTimeStep() const override;
         int getVelocitySteps() const;
         int getPositionSteps() const;
+        bool isPhysicallyFeasible() override;
 
         WorldViewerPtr getViewer() override;
         LoggerPtr getLogger() override;
@@ -623,6 +626,9 @@ namespace sim_env{
         bool checkCollision(LinkPtr link_a, const std::vector<ObjectPtr> &other_objects,
                             std::vector<Contact> &contacts) override;
         std::recursive_mutex& getMutex() const override;
+
+        bool atRest(float threshold=0.0001f) const override;
+
         void saveState() override;
         bool restoreState() override;
         WorldState getWorldState() const override;

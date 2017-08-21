@@ -1092,6 +1092,11 @@ void Box2DObject::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::V
     }
 }
 
+bool Box2DObject::atRest(float threshold) const {
+    Eigen::VectorXf vel = getDOFVelocities(getDOFIndices());
+    return vel.lpNorm<Eigen::Infinity>() <= threshold;
+}
+
 void Box2DObject::setName(const std::string &name) {
     _name = name;
     // let all links and joints know that we have a new name
@@ -1362,6 +1367,10 @@ void Box2DRobot::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::Ve
 
 bool Box2DRobot::isStatic() const {
     return _robot_object->isStatic();
+}
+
+bool Box2DRobot::atRest(float threshold) const {
+    return _robot_object->atRest(threshold);
 }
 
 bool Box2DRobot::checkCollision() {
@@ -1997,6 +2006,12 @@ int Box2DWorld::getPositionSteps() const {
     return _position_steps;
 }
 
+bool Box2DWorld::isPhysicallyFeasible() {
+    // TODO after collision check, check whether colliding bodies are intersecting more than some threshold
+    // TODO can do this with boost::geometry. there are union (to unify fixtures) and intersection algorithms
+    return true;
+}
+
 WorldViewerPtr Box2DWorld::getViewer() {
     // TODO
     return nullptr;
@@ -2030,6 +2045,23 @@ float Box2DWorld::getGravity() const {
 
 std::recursive_mutex& Box2DWorld::getMutex() const {
     return _world_mutex;
+}
+
+bool Box2DWorld::atRest(float threshold) const {
+    bool at_rest = true;
+    for (auto& object : _objects) {
+        at_rest = at_rest && object.second->atRest(threshold);
+        if (not at_rest) {
+            return false;
+        }
+    }
+    for (auto& robot : _robots) {
+        at_rest = at_rest && robot.second->atRest(threshold);
+        if (not at_rest) {
+            return false;
+        }
+    }
+    return at_rest;
 }
 
 WorldState Box2DWorld::getWorldState() const {
@@ -2336,4 +2368,5 @@ LinkPtr Box2DWorld::getLink(b2Body *body) {
     }
     return nullptr;
 }
+
 
