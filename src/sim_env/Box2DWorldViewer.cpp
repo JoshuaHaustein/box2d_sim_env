@@ -17,7 +17,6 @@
 #include <QtGui/QWidget>
 #include <QWheelEvent>
 #include <QTimer>
-#include <QtGui/QTabWidget>
 #include <QtGui/QRadioButton>
 
 //////////////////////////////////////// utils /////////////////////////////////////////////
@@ -1115,17 +1114,17 @@ void sim_env::Box2DWorldViewer::createUI() {
     container->setLayout(container_layout);
 
     // bottom widget (simulation control)
-    QWidget* bottom_panel = createBottomBar();
+    createBottomBar();
     root_layout->addWidget(container);
-    root_layout->addWidget(bottom_panel);
+    root_layout->addWidget(_bottom_tab_widget);
     _root_widget->setLayout(root_layout);
 }
 
-QWidget* sim_env::Box2DWorldViewer::createBottomBar() {
-    QTabWidget* tab_widget = new QTabWidget(_root_widget.get());
+void sim_env::Box2DWorldViewer::createBottomBar() {
+    _bottom_tab_widget = new QTabWidget(_root_widget.get());
     // build simulation control view
     QGroupBox* simulation_control_view = new QGroupBox("Dynamics model control");
-    tab_widget->addTab(simulation_control_view, "Simulation control");
+    _bottom_tab_widget->addTab(simulation_control_view, "Simulation control");
     QHBoxLayout* sim_control_layout = new QHBoxLayout();
     QPushButton* sim_control_button = new QPushButton("Run simulation", simulation_control_view);
     sim_control_button->setCheckable(true);
@@ -1136,8 +1135,7 @@ QWidget* sim_env::Box2DWorldViewer::createBottomBar() {
     viewer::Box2DControllerView* robot_control_view = new viewer::Box2DControllerView();
     QObject::connect(_world_view, SIGNAL(objectSelected(sim_env::ObjectWeakPtr)),
                      robot_control_view, SLOT(setCurrentObject(sim_env::ObjectWeakPtr)));
-    tab_widget->addTab(robot_control_view, "Robot control");
-    return tab_widget;
+    _bottom_tab_widget->addTab(robot_control_view, "Robot control");
 }
 
 QWidget* sim_env::Box2DWorldViewer::createSideBar() {
@@ -1150,5 +1148,9 @@ QWidget* sim_env::Box2DWorldViewer::createSideBar() {
               SLOT(refreshView()));
     QObject::connect(_world_view, SIGNAL(refreshTick()), state_view, SLOT(stateUpdate()));
     return state_view;
+}
+
+void sim_env::Box2DWorldViewer::addCustomWidget(QWidget *widget, const std::string& name) {
+    _bottom_tab_widget->addTab(widget, name.c_str());
 }
 

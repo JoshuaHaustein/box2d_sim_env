@@ -35,7 +35,7 @@ catkin_package(
         INCLUDE_DIRS include
         LIBRARIES box2d_sim_env
         CATKIN_DEPENDS box2d_catkin sim_env
-        DEPENDS Eigen yaml-cpp Boost
+        DEPENDS Eigen yaml-cpp Boost Qt4
 )
 
 ###########

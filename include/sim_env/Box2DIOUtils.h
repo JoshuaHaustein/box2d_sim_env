@@ -135,13 +135,13 @@ namespace sim_env {
             ed.scale = node["scale"].as<float>();
         } else {
             ed.scale = 1.0;
-            logger->logWarn("No scale specified. Using default scale (1.0).", "sim_env/Box2DIOUtils.h");
+            logger->logWarn("No scale specified. Using default scale (1.0).", "[sim_env/Box2DIOUtils.h]");
         }
         if (node["world_bounds"]) {
             ed.world_bounds = node["world_bounds"].as<Eigen::Vector4f>();
         } else {
             ed.world_bounds << 0.0f, 0.0f, 0.0f, 0.0f;
-            logger->logWarn("No world bounds specified. Using default world bounds.", "sim_env/Box2DIOUtils.h");
+            logger->logWarn("No world bounds specified. Using default world bounds.", "[sim_env/Box2DIOUtils.h]");
         }
         parseRobotDescriptions(node["robots"], root_path, ed.robots);
         parseObjectDescriptions(node["objects"], root_path, ed.objects);

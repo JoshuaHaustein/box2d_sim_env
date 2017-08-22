@@ -18,9 +18,10 @@
 #include <QtGui/QPushButton>
 #include <QtGui/QSlider>
 #include <QtGui/QFormLayout>
+#include <QtGui/QLabel>
+#include <QtGui/QTabWidget>
 // stl includes
 #include <thread>
-#include <QtGui/QLabel>
 
 namespace sim_env {
     namespace viewer {
@@ -263,6 +264,7 @@ namespace sim_env {
          */
         void show(int argc = 0, char** argv = nullptr);
         void drawFrame(const Eigen::Affine3f &transform, float length=1.0f, float width=0.01f) override;
+        void addCustomWidget(QWidget* widget, const std::string& name);
 
     protected:
         void log(const std::string& msg, const std::string& prefix,
@@ -273,6 +275,7 @@ namespace sim_env {
         Box2DWorldWeakPtr _world;
         std::unique_ptr<QApplication> _app;
         std::unique_ptr<QWidget> _root_widget;
+        QTabWidget* _bottom_tab_widget;
         viewer::Box2DWorldView* _world_view;
         // this is a qt object, so we keep a pointer.
         std::unique_ptr<viewer::Box2DSimulationController> _simulation_controller;
@@ -282,7 +285,7 @@ namespace sim_env {
 
         // private methods
         void createUI();
-        QWidget* createBottomBar();
+        void createBottomBar();
         QWidget* createSideBar();
     };
 }
