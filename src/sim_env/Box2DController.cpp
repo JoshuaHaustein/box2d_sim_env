@@ -36,9 +36,9 @@ void Box2DRobotVelocityController::setTargetVelocity(const Eigen::VectorXf& velo
                        "[sim_env::Box2DRObotVelocityController::setTargetVelocity]");
         // TODO do we want to throw an exception here?
     }
-    std::stringstream ss;
-    ss << "Target velocity is " << _target_velocity.transpose();
-    logger->logDebug(ss.str());
+//    std::stringstream ss;
+//    ss << "Target velocity is " << _target_velocity.transpose();
+//    logger->logDebug(ss.str());
     _b_target_available = true;
 }
 

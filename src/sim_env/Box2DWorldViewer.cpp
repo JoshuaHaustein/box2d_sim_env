@@ -301,6 +301,11 @@ void sim_env::viewer::Box2DObjectStateView::sliderChange(int value) {
             Eigen::ArrayX2f limits = object->getDOFPositionLimits(indices);
             Eigen::VectorXf configuration(1);
             configuration[0] = utils::fromTickValue(value, limits(0, 0), limits(0, 1));
+            auto logger = object->getWorld()->getLogger();
+            std::stringstream ss;
+            ss << "Current joint position: " << object->getDOFPositions(indices).transpose();
+            ss << "New joint position: " << configuration.transpose();
+            logger->logDebug(ss.str());
             object->setDOFPositions(configuration, indices);
             emit newUserState();
             return;

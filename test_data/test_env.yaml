@@ -8,7 +8,7 @@ objects:
     static: False
   - name: obj2
     filename: objects/test_object2.yaml
-    static: False
+    static: True
 states:
   - name: my_robot
     state:
@@ -21,4 +21,4 @@ states:
   - name: obj2
     state:
       configuration: [2.9, 1.2, -6.12, 0.0]
-      velocity: [0.0, 0.0, 0.0, -0.5]
+      velocity: [0.0, 0.0, 0.0, 0.4]

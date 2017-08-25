@@ -7,11 +7,14 @@
 #include "sim_env/Box2DWorld.h"
 #include "sim_env/Box2DWorldViewer.h"
 #include "sim_env/utils/YamlUtils.h"
+#include "sim_env/utils/MathUtils.h"
 #include <boost/filesystem.hpp>
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point_xy.hpp>
 #include <boost/geometry/geometries/polygon.hpp>
 #include <boost/format.hpp>
+
+#define FLOAT_NOISE_TOLERANCE 0.0001f
 
 using namespace sim_env;
 namespace bg = boost::geometry;
@@ -92,6 +95,7 @@ Box2DLink::~Box2DLink() {
 }
 
 void Box2DLink::destroy(const std::shared_ptr<b2World>& b2world) {
+//    sim_env::DefaultLogger::getInstance()->logDebug("Destroying Box2DLink", "[sim_env::Box2DLink::destroy]");
     b2world->DestroyJoint(_friction_joint);
     b2world->DestroyBody(_body);
     _destroyed = true;
@@ -114,10 +118,11 @@ EntityType Box2DLink::getType() const {
 }
 
 Eigen::Affine3f Box2DLink::getTransform() const {
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
     b2Vec2 pos = _body->GetWorldPoint(_local_origin_offset);
     float orientation = _body->GetAngle();
     Eigen::Affine3f transform;
-    Box2DWorldPtr world = getBox2DWorld();
     transform = Eigen::Translation3f(world->getInverseScale() * pos.x,
                                    world->getInverseScale() * pos.y,
                                    0.0);
@@ -126,8 +131,9 @@ Eigen::Affine3f Box2DLink::getTransform() const {
 }
 
 void Box2DLink::getPose(Eigen::Vector3f& pose) const {
-    b2Vec2 pos = _body->GetWorldPoint(_local_origin_offset);
     Box2DWorldConstPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
+    b2Vec2 pos = _body->GetWorldPoint(_local_origin_offset);
     float orientation = _body->GetAngle();
     pose[0] = world->getInverseScale() * pos.x;
     pose[1] = world->getInverseScale() * pos.y;
@@ -142,6 +148,7 @@ Eigen::Vector3f Box2DLink::getPose() const {
 
 void Box2DLink::getVelocityVector(Eigen::Vector3f& vel_vector) const {
     Box2DWorldConstPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
     b2Vec2 b2_vel = _body->GetLinearVelocity();
     vel_vector[0] = world->getInverseScale() * b2_vel.x;
     vel_vector[1] = world->getInverseScale() * b2_vel.y;
@@ -187,10 +194,16 @@ void Box2DLink::registerChildJoint(Box2DJointPtr joint) {
 }
 
 void Box2DLink::registerParentJoint(Box2DJointPtr joint) {
-    _parent_joints.push_back(Box2DJointWeakPtr(joint));
+    if (not _parent_joint.expired()) {
+        auto logger = getWorld()->getLogger();
+        logger->logWarn("Resetting parent joint.", "[sim_env::Box2DLink::registerParentJoint]");
+    }
+    _parent_joint = joint;
 }
 
 void Box2DLink::getGeometry(std::vector<std::vector<Eigen::Vector2f> > &geometry) const {
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
     b2Fixture* fixture = _body->GetFixtureList();
     while (fixture) {
         b2Shape* shape = fixture->GetShape();
@@ -210,18 +223,23 @@ void Box2DLink::getGeometry(std::vector<std::vector<Eigen::Vector2f> > &geometry
     }
 }
 
-void Box2DLink::setTransform(const Eigen::Affine3f &tf) {
-    Box2DWorldPtr world = getBox2DWorld();
-    auto rotation_matrix = tf.rotation();
-    float theta = (float) acos(rotation_matrix(0, 0));
-    theta = rotation_matrix(1,0) > 0.0 ? theta: -theta;
-    float x = tf.translation()(0);
-    float y = tf.translation()(1);
-    setPose(Eigen::Vector3f(x, y, theta));
-}
+//void Box2DLink::setTransform(const Eigen::Affine3f &tf) {
+//    if (not _parent_joint.expired()) {
+//        throw std::logic_error("Setting transform of link within kinematic chain directly, is not supported."
+//                                   "[sim_env::Box2DLink::setTransform]");
+//    }
+//    auto rotation_matrix = tf.rotation();
+//    float theta = (float) acos(rotation_matrix(0, 0));
+//    theta = rotation_matrix(1,0) > 0.0 ? theta: -theta;
+//    float x = tf.translation()(0);
+//    float y = tf.translation()(1);
+//    Box2DObjectPtr object = getBox2DObject();
+//    setPose(Eigen::Vector3f(x, y, theta));
+//}
 
 void Box2DLink::setPose(const Eigen::Vector3f& pose, bool update_children, bool joint_override) {
     Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
     // first save joint values of child joints
     std::vector<float> child_joint_values;
     if (update_children) {
@@ -238,8 +256,8 @@ void Box2DLink::setPose(const Eigen::Vector3f& pose, bool update_children, bool 
     b2Vec2 base_link_translation(world->getScale() * pose[0], world->getScale() * pose[1]);
     float theta = pose[2];
     // we need to compute the world position of the body's origin (which might be different form the link's origin)
-    _body->SetTransform(b2Vec2(0, 0), theta);
-    b2Vec2 offset = _body->GetWorldVector(_local_origin_offset);
+    b2Rot rotate_theta(theta);
+    b2Vec2 offset = b2Mul(rotate_theta, _local_origin_offset);
     _body->SetTransform(base_link_translation - offset, theta);
     // next, update children if requested
     if (update_children) {
@@ -252,34 +270,45 @@ void Box2DLink::setPose(const Eigen::Vector3f& pose, bool update_children, bool 
     }
 }
 
-void Box2DLink::setVelocityVector(const Eigen::Vector3f& velocity, bool relative) {
-    Box2DWorldPtr world = getBox2DWorld();
-    b2Vec2 linear_vel_change(world->getScale() * velocity[0], world->getScale() * velocity[1]);
-    float angular_vel_change = velocity[2];
-    if (not relative) {
-        linear_vel_change = linear_vel_change - _body->GetLinearVelocity();
-        angular_vel_change = angular_vel_change - _body->GetAngularVelocity();
-    }
-    b2Vec2 current_vel = _body->GetLinearVelocity();
-    _body->SetLinearVelocity(current_vel + linear_vel_change);
-    _body->SetAngularVelocity(_body->GetAngularVelocity() + angular_vel_change);
-
-    for (auto& weak_child_joint : _child_joints) {
-        JointPtr child_joint = weak_child_joint.lock();
-        Box2DLinkPtr child_link = std::static_pointer_cast<Box2DLink>(child_joint->getChildLink());
-        // TODO test this
-        child_link->propagateVelocityChange(linear_vel_change.x, linear_vel_change.y,
-                                            angular_vel_change, _body);
-
-    }
+void Box2DLink::setVelocityVector(const Eigen::Vector3f& velocity) {
+    _body->SetLinearVelocity(b2Vec2(velocity[0], velocity[1]));
+    _body->SetAngularVelocity(velocity[2]);
+//    Box2DWorldPtr world = getBox2DWorld();
+//    Box2DWorldLock lock(world->getMutex());
+//    b2Vec2 linear_vel_change(world->getScale() * velocity[0], world->getScale() * velocity[1]);
+//    float angular_vel_change = velocity[2];
+//    if (not relative) {
+//        linear_vel_change = linear_vel_change - _body->GetLinearVelocity();
+//        angular_vel_change = angular_vel_change - _body->GetAngularVelocity();
+//    }
+//    // before resetting this link's velocity, let children update theirs first,
+//    // so they can keep their joint velocities
+//    b2Vec2 current_vel = _body->GetLinearVelocity();
+//    b2Vec2 new_vel = current_vel + linear_vel_change;
+//    float new_angular_vel = _body->GetAngularVelocity() + angular_vel_change;
+//
+//    for (auto& weak_child_joint : _child_joints) {
+//        JointPtr child_joint = weak_child_joint.lock();
+//        float joint_vel = child_joint->getVelocity();
+//        Box2DLinkPtr child_link = std::static_pointer_cast<Box2DLink>(child_joint->getChildLink());
+//        // TODO test this
+//        child_link->propagateVelocityChange(new_vel.x, new_vel.y,
+//                                            new_angular_vel, joint_vel, _body);
+//
+//    }
+//    _body->SetLinearVelocity(new_vel);
+//    _body->SetAngularVelocity(new_angular_vel);
 }
 
 float Box2DLink::getMass() const {
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
     return _body->GetMass();
 }
 
 float Box2DLink::getInertia() const {
     Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
     float inv_scale = world->getInverseScale();
     return  inv_scale * inv_scale * _body->GetInertia();
 }
@@ -292,6 +321,7 @@ Eigen::Vector2f Box2DLink::getCenterOfMass() const {
 
 void Box2DLink::getCenterOfMass(Eigen::Vector2f& com) const {
     Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
     float inv_scale = world->getInverseScale();
     b2Vec2 box2d_com = _body->GetWorldCenter();
     com[0] = inv_scale * box2d_com.x;
@@ -299,6 +329,8 @@ void Box2DLink::getCenterOfMass(Eigen::Vector2f& com) const {
 }
 
 void Box2DLink::getChildJoints(std::vector<JointPtr> &child_joints) {
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
     for (auto& child_joint_wptr : _child_joints) {
         JointPtr child_joint = child_joint_wptr.lock();
         if (!child_joint) {
@@ -309,6 +341,8 @@ void Box2DLink::getChildJoints(std::vector<JointPtr> &child_joints) {
 }
 
 void Box2DLink::getConstChildJoints(std::vector<JointConstPtr> &child_joints) const {
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
     for (auto& child_joint_wptr : _child_joints) {
         JointPtr child_joint = child_joint_wptr.lock();
         if (!child_joint) {
@@ -318,63 +352,34 @@ void Box2DLink::getConstChildJoints(std::vector<JointConstPtr> &child_joints) co
     }
 }
 
-void Box2DLink::getParentJoints(std::vector<JointPtr> &parent_joints) {
-    for (auto& parent_joint_wptr : _parent_joints) {
-        JointPtr parent_joint = parent_joint_wptr.lock();
-        if (!parent_joint) {
-            throw std::logic_error("[sim_env::Box2DLink::getParentJoints] parent joint does not exist anymore.");
-        }
-        parent_joints.push_back(parent_joint);
+JointPtr Box2DLink::getParentJoint() {
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
+    JointPtr parent_joint = _parent_joint.lock();
+    if (!parent_joint) {
+        throw std::logic_error("[sim_env::Box2DLink::getParentJoints] parent joint does not exist anymore.");
     }
+    return parent_joint;
 }
 
-void Box2DLink::getConstParentJoints(std::vector<JointConstPtr> &parent_joints) const {
-    for (auto& parent_joint_wptr : _parent_joints) {
-        JointPtr parent_joint = parent_joint_wptr.lock();
-        if (!parent_joint) {
-            throw std::logic_error("[sim_env::Box2DLink::getConstParentJoints] parent joint does not exist anymore.");
-        }
-        parent_joints.push_back(parent_joint);
+JointConstPtr Box2DLink::getConstParentJoint() const {
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
+    JointPtr parent_joint = _parent_joint.lock();
+    if (!parent_joint) {
+        throw std::logic_error("[sim_env::Box2DLink::getConstParentJoints] parent joint does not exist anymore.");
     }
+    return parent_joint;
 }
 
 void Box2DLink::setOriginToCenterOfMass() {
-    _local_origin_offset = _body->GetLocalCenter();
-}
-
-///////////////////////////////// PRIVATE //////////////////////////////////////
-void Box2DLink::propagateVelocityChange(const float& dx,
-                                        const float& dy,
-                                        const float& dw,
-                                        const b2Body* parent) {
-    // the linear velocity applies to each body in a chain in the same way
-    // the change of angular velocity, however, is a bit more tricky. we need to
-    // compute the radial velocity
-    // let's first compute radius vector from parent's origin to this link's frame
-    // TODO I'm afraid this may still be wrong. Need to figure our where all velocities apply
-    // TODO to. I have a feeling the center of mass may be the reference point for angular
-    // TODO velocity and not the origin of the frame
-    b2MassData mass_data;
-   _body->GetMassData(&mass_data);
-    b2Vec2 center_of_mass_in_world = mass_data.center;
-    b2Vec2 origin_in_parent = parent->GetLocalPoint(center_of_mass_in_world);
-    b2Vec2 radial_vel(origin_in_parent.y * dw, -origin_in_parent.x * dw);
-    b2Vec2 current_lin_vel = _body->GetLinearVelocity();
-    b2Vec2 lin_vel(dx, dy);
-    _body->SetLinearVelocity(current_lin_vel + lin_vel + parent->GetWorldVector(radial_vel));
-    // propagate change further down in the kinematic chain
-    for (auto& child : _child_joints) {
-        if (child.expired()) {
-            throw std::logic_error("[Box2DLink::propagateVelocityChange] Child joint not available anymore.");
-        }
-        Box2DJointPtr child_joint = child.lock();
-        Box2DLinkPtr child_link = child_joint->getChildBox2DLink();
-        child_link->propagateVelocityChange(dx, dy, dw, parent);
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
+    if (not _parent_joint.expired()) {
+        world->getLogger()->logWarn("Resetting origin to center of mass for non-base link",
+                                    "[sim_env::Box2DLink::setOriginToCenterOfMass]");
     }
-}
-
-void Box2DLink::getBodies(std::vector<b2Body *> &bodies) {
-    bodies.push_back(_body);
+    _local_origin_offset = _body->GetLocalCenter();
 }
 
 bool Box2DLink::checkCollision() {
@@ -411,6 +416,83 @@ LinkPtr Box2DLink::getLink(b2Body *body) {
     return shared_from_this();
 }
 
+void Box2DLink::getBodies(std::vector<b2Body *> &bodies) {
+    bodies.push_back(_body);
+}
+
+void Box2DLink::updateBodyVelocities(const Eigen::VectorXf& all_dof_velocities,
+                                     std::vector<std::pair<b2Vec2, unsigned int> >& parent_joints,
+                                     unsigned int index_offset) {
+    float scale = getBox2DWorld()->getScale();
+    // init the linear velocity for this link with the base velocity
+    b2Vec2 my_linear_velocity(scale * all_dof_velocities[0], scale * all_dof_velocities[1]);
+    float my_angular_velocity = 0.0f;
+    // now run over all parent joints and compute the tangential speed
+    b2Vec2 my_com = _body->GetWorldCenter();
+    for (unsigned int i = 0; i < parent_joints.size(); ++i) {
+        // get the rotational axis of the parent joint (in world frame)
+        b2Vec2 axis_i = parent_joints[i].first;
+        unsigned int joint_idx_i = parent_joints[i].second;
+        b2Vec2 com_i = my_com - axis_i; // vector pointing from axis to center of mass of this link
+        // omega x r (i.e. joint_vel cross com_i)
+        my_linear_velocity.x -= all_dof_velocities[joint_idx_i] * com_i.y;
+        my_linear_velocity.y += all_dof_velocities[joint_idx_i] * com_i.x;
+        // the angular velocity is the sum of all parent frames
+        my_angular_velocity += all_dof_velocities[joint_idx_i];
+    }
+    // set the velocity
+    _body->SetLinearVelocity(my_linear_velocity);
+    _body->SetAngularVelocity(my_angular_velocity);
+    // now propagate further down in the kinematic chain
+    for (const auto &weak_child_joint : _child_joints) {
+        auto child_joint = weak_child_joint.lock();
+        if (not child_joint) {
+            throw std::logic_error("[Box2DLink::updateBodyVelocities] Can not access child joint. Invalid weak pointer");
+        }
+        parent_joints.emplace_back(std::make_pair(child_joint->getGlobalAxisPosition(),
+                                                  child_joint->getDOFIndex() + index_offset));
+        child_joint->getChildBox2DLink()->updateBodyVelocities(all_dof_velocities, parent_joints, index_offset);
+        parent_joints.pop_back();
+    }
+}
+///////////////////////////////// PRIVATE //////////////////////////////////////
+//void Box2DLink::propagateVelocityChange(float v_x,
+//                                        float v_y,
+//                                        float v_theta,
+//                                        float v_joint,
+//                                        b2Body* parent) {
+//    // the linear velocity applies to each body in a chain in the same way
+//    // the angular velocity applies also to each body in the same way.
+////    b2MassData mass_data;
+////   _body->GetMassData(&mass_data);
+////    b2Vec2 center_of_mass_in_world = mass_data.center;
+////    b2Vec2 origin_in_parent = parent->GetLocalPoint(center_of_mass_in_world);
+//    Box2DJointPtr parent_joint = _parent_joint.lock();
+//    if (!parent_joint) {
+//        throw std::logic_error("[sim_env::Box2DLink::propagateVelocityChange] Could not access parent joint");
+//    }
+//    // TODO SOMETHING IS WRONG HERE
+//    b2Vec2 origin_in_parent = parent_joint->getLocalAxisPosition();
+//    b2Vec2 center_of_mass = _body->GetLocalCenter();
+//    center_of_mass = origin_in_parent + center_of_mass;
+//    b2Vec2 radial_vel(-center_of_mass.y * v_theta, center_of_mass.x * v_theta);
+//    b2Vec2 new_lin_vel(v_x, v_y);
+//    new_lin_vel += parent->GetWorldVector(radial_vel);
+//    float new_angular_vel = v_theta + v_joint;
+//    // propagate change further down in the kinematic chain
+//    for (auto& child : _child_joints) {
+//        if (child.expired()) {
+//            throw std::logic_error("[Box2DLink::propagateVelocityChange] Child joint not available anymore.");
+//        }
+//        Box2DJointPtr child_joint = child.lock();
+//        Box2DLinkPtr child_link = child_joint->getChildBox2DLink();
+//        child_link->propagateVelocityChange(new_lin_vel.x, new_lin_vel.y,
+//                                            new_angular_vel, child_joint->getVelocity(),
+//                                            _body);
+//    }
+//    _body->SetLinearVelocity(new_lin_vel);
+//    _body->SetAngularVelocity(new_angular_vel);
+//}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -464,6 +546,7 @@ Box2DJoint::Box2DJoint(const Box2DJointDescription &joint_desc, Box2DLinkPtr lin
             break;
         }
         case JointType::Prismatic: {
+            // TODO actually we don't support these right now
             b2PrismaticJointDef joint_def;
             b2Vec2 box2d_axis(joint_desc.axis[0], joint_desc.axis[1]);
             b2Vec2 box2d_direction(std::cos(joint_desc.axis_orientation), std::sin(joint_desc.axis_orientation));
@@ -499,11 +582,14 @@ Box2DJoint::~Box2DJoint() {
 }
 
 void Box2DJoint::destroy(const std::shared_ptr<b2World>& b2world) {
+//    sim_env::DefaultLogger::getInstance()->logDebug("Destroying Box2DJoint", "[sim_env::Box2DJoint::destroy]");
     b2world->DestroyJoint(_joint);
     _destroyed = true;
 }
 
 float Box2DJoint::getPosition() const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     switch (_joint_type) {
         case JointType::Revolute: {
             b2RevoluteJoint* revolute_joint = static_cast<b2RevoluteJoint*>(_joint);
@@ -518,18 +604,23 @@ float Box2DJoint::getPosition() const {
 }
 
 void Box2DJoint::setPosition(float v) {
-    resetPosition(v, false);
+    Box2DObjectPtr object = getBox2DObject();
+    Eigen::VectorXf val(1);
+    Eigen::VectorXi indices(1);
+    val[0] = v;
+    indices[0] = getDOFIndex();
+    object->setDOFPositions(val, indices);
 }
 
 void Box2DJoint::resetPosition(float value, bool child_joint_override) {
     auto world = getBox2DWorld();
     Box2DWorldLock lock(world->getMutex());
     auto logger = world->getLogger();
-    if (value < _position_limits[0] || value > _position_limits[1]) {
+    float clamped_value = sim_env::utils::math::clamp(value, _position_limits[0], _position_limits[1]);
+    if (std::abs(clamped_value - value) > FLOAT_NOISE_TOLERANCE) {
         std::stringstream ss;
-        ss << "Position " << value << " is out of limits (" << _position_limits << " for joint " << getJointIndex();
+        ss << "Position " << value << " is out of limits (" << _position_limits.transpose() << ") for joint " << getJointIndex();
         logger->logWarn(ss.str(), "[sim_env::Box2DJoint::resetPosition]");
-        value = value < _position_limits[0] ? _position_limits[0] : _position_limits[1];
     }
     switch (_joint_type) {
         case JointType::Revolute: {
@@ -538,7 +629,7 @@ void Box2DJoint::resetPosition(float value, bool child_joint_override) {
             // that the revolute joint reaches the desired angle
             // Since the child link's frame is centered at the joint axis, we only
             // need to update the link's orientation and ensure that is placed at the joint axis
-            float new_angle = revolute_joint->GetBodyA()->GetAngle() + value
+            float new_angle = revolute_joint->GetBodyA()->GetAngle() + clamped_value
                               + revolute_joint->GetReferenceAngle();
             b2Vec2 axis_world = revolute_joint->GetAnchorA();
             Eigen::Vector3f new_pose_b;
@@ -559,6 +650,8 @@ void Box2DJoint::resetPosition(float value, bool child_joint_override) {
 }
 
 float Box2DJoint::getVelocity() const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     switch (_joint_type) {
         case JointType::Revolute: {
             b2RevoluteJoint* revolute_joint = static_cast<b2RevoluteJoint*>(_joint);
@@ -574,27 +667,12 @@ float Box2DJoint::getVelocity() const {
 }
 
 void Box2DJoint::setVelocity(float v) {
-    auto world = getBox2DWorld();
-    Box2DWorldLock lock(world->getMutex());
-    switch (_joint_type) {
-        case JointType::Revolute: {
-            Box2DLinkPtr link_a = getParentBox2DLink();
-            Box2DLinkPtr link_b = getChildBox2DLink();
-            Eigen::Vector3f velocity_a;
-            link_a->getVelocityVector(velocity_a);
-            Eigen::Vector3f velocity_b;
-            link_b->getVelocityVector(velocity_b);
-            velocity_b[2] = velocity_a[2] + v;
-            link_b->setVelocityVector(velocity_b);
-            break;
-        }
-        case JointType::Prismatic: {
-            // TODO
-            throw std::logic_error("setVelocity for pristmatic joints is not implemented yet");
-        }
-        default:
-            throw std::logic_error("[sim_env::Box2DJoint::setVelocity] This joint has an unsupported type");
-    }
+    Box2DObjectPtr object = getBox2DObject();
+    Eigen::VectorXi indices(1);
+    indices[0] = getDOFIndex();
+    Eigen::VectorXf value(1);
+    value[0] = v;
+    object->setDOFVelocities(value, indices);
 }
 
 Eigen::Array2f Box2DJoint::getPositionLimits() const {
@@ -700,7 +778,22 @@ ObjectConstPtr Box2DJoint::getConstObject() const {
     return getObject();
 }
 
+Box2DObjectPtr Box2DJoint::getBox2DObject() {
+    auto world = getBox2DWorld();
+    auto object_ptr = world->getBox2DObject(_object_name);
+    if (not object_ptr) {
+        auto robot_ptr = world->getBox2DRobot(_object_name);
+        if (not robot_ptr) {
+            throw std::logic_error("[Box2DJoint::getBox2DObject] Could not retrieve object.");
+        }
+        return robot_ptr->getBox2DObject();
+    }
+    return object_ptr;
+}
+
 void Box2DJoint::setControlTorque(float value) {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     float scale = getBox2DWorld()->getScale();
     switch (_joint_type) {
         case JointType::Prismatic: {
@@ -745,12 +838,45 @@ void Box2DJoint::getAccelerationLimits(Eigen::Array2f &limits) const {
 }
 
 Eigen::Vector2f Box2DJoint::getAxisPosition() const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     Box2DLinkPtr child_link = getChildBox2DLink();
     Eigen::Vector3f child_pose;
     child_link->getPose(child_pose);
     return Eigen::Vector2f(child_pose[0], child_pose[1]);
 }
 
+b2Vec2 Box2DJoint::getLocalAxisPosition() const {
+    switch(_joint_type) {
+        case JointType::Revolute:
+        {
+            b2RevoluteJoint* joint = static_cast<b2RevoluteJoint*>(_joint);
+            return joint->GetLocalAnchorA();
+            break;
+        }
+        case JointType::Prismatic:
+        {
+            //TODO
+            throw std::logic_error("getLocalAxisPosition for prismatic joints is not implemented yet");
+        }
+    }
+}
+
+b2Vec2 Box2DJoint::getGlobalAxisPosition() const {
+    switch(_joint_type) {
+        case JointType::Revolute:
+        {
+            b2RevoluteJoint* joint = static_cast<b2RevoluteJoint*>(_joint);
+            return joint->GetAnchorA();
+            break;
+        }
+        case JointType::Prismatic:
+        {
+            //TODO
+            throw std::logic_error("getLocalAxisPosition for prismatic joints is not implemented yet");
+        }
+    }
+}
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DObject members *//////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -766,6 +892,7 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
         _mass += link->getMass();
     }
     _base_link = _links[obj_desc.base_link];
+    _base_link->setOriginToCenterOfMass();
 
     unsigned int base_dofs = _is_static ? 0 : 3;
     // next create joints
@@ -781,6 +908,10 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
         joint->setDOFIndex(joint->getJointIndex() + base_dofs);
     }
     _num_dofs = (unsigned int) (base_dofs + _sorted_joints.size());
+    _all_dof_indices.resize(_num_dofs);
+    for (unsigned int i = 0; i < _num_dofs; ++i) {
+        _all_dof_indices[i] = i;
+    }
     // by default set all dofs active
     _active_dof_indices = getDOFIndices();
     // finally initialize all links to be placed correctly (the initial pose at the origin does not matter)
@@ -788,25 +919,25 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
     if (!_is_static) { // set dof information for base dofs
         // by default all base dofs are unbounded
         _x_dof_info.dof_index = 0;
-        _x_dof_info.position_limits[0] = -std::numeric_limits<float>::max();
+        _x_dof_info.position_limits[0] = std::numeric_limits<float>::lowest();
         _x_dof_info.position_limits[1] = std::numeric_limits<float>::max();
-        _x_dof_info.velocity_limits[0] = -std::numeric_limits<float>::max();
+        _x_dof_info.velocity_limits[0] = std::numeric_limits<float>::lowest();
         _x_dof_info.velocity_limits[1] = std::numeric_limits<float>::max();
-        _x_dof_info.acceleration_limits[0] = -std::numeric_limits<float>::max();
+        _x_dof_info.acceleration_limits[0] = std::numeric_limits<float>::lowest();
         _x_dof_info.acceleration_limits[1] = std::numeric_limits<float>::max();
         _y_dof_info.dof_index = 1;
-        _y_dof_info.position_limits[0] = -std::numeric_limits<float>::max();
+        _y_dof_info.position_limits[0] = std::numeric_limits<float>::lowest();
         _y_dof_info.position_limits[1] = std::numeric_limits<float>::max();
-        _y_dof_info.velocity_limits[0] = -std::numeric_limits<float>::max();
+        _y_dof_info.velocity_limits[0] = std::numeric_limits<float>::lowest();
         _y_dof_info.velocity_limits[1] = std::numeric_limits<float>::max();
-        _y_dof_info.acceleration_limits[0] = -std::numeric_limits<float>::max();
+        _y_dof_info.acceleration_limits[0] = std::numeric_limits<float>::lowest();
         _y_dof_info.acceleration_limits[1] = std::numeric_limits<float>::max();
         _theta_dof_info.dof_index = 2;
-        _theta_dof_info.position_limits[0] = -std::numeric_limits<float>::max();
+        _theta_dof_info.position_limits[0] = std::numeric_limits<float>::lowest();
         _theta_dof_info.position_limits[1] = std::numeric_limits<float>::max();
-        _theta_dof_info.velocity_limits[0] = -std::numeric_limits<float>::max();
+        _theta_dof_info.velocity_limits[0] = std::numeric_limits<float>::lowest();
         _theta_dof_info.velocity_limits[1] = std::numeric_limits<float>::max();
-        _theta_dof_info.acceleration_limits[0] = -std::numeric_limits<float>::max();
+        _theta_dof_info.acceleration_limits[0] = std::numeric_limits<float>::lowest();
         _theta_dof_info.acceleration_limits[1] = std::numeric_limits<float>::max();
     }
 }
@@ -818,6 +949,7 @@ Box2DObject::~Box2DObject() {
 }
 
 void Box2DObject::destroy(const std::shared_ptr<b2World>& b2world) {
+//    sim_env::DefaultLogger::getInstance()->logDebug("Destroying Box2DObject", "[sim_env::Box2DObject::destroy]");
     // Unfortunately, this can not be called in the destructor
     for (std::pair<const std::string, Box2DJointPtr>& joint_iter : _joints) {
         joint_iter.second->destroy(b2world);
@@ -839,21 +971,36 @@ EntityType Box2DObject::getType() const {
 }
 
 Eigen::Affine3f Box2DObject::getTransform() const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     return _base_link->getTransform();
 }
 
 Eigen::Vector3f Box2DObject::getPose() const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     return _base_link->getPose();
 }
 
 void Box2DObject::getPose(Eigen::Vector3f& pose) const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     return _base_link->getPose(pose);
 }
 
 void Box2DObject::setTransform(const Eigen::Affine3f &tf) {
     auto world = getBox2DWorld();
     Box2DWorldLock lock(world->getMutex());
-    _base_link->setTransform(tf);
+    auto rotation_matrix = tf.rotation();
+    float theta = (float) acos(rotation_matrix(0, 0));
+    theta = rotation_matrix(1,0) > 0.0 ? theta: -theta;
+    float x = tf.translation()(0);
+    float y = tf.translation()(1);
+    // save current velocities (when the pose changes, body velocities need to be updated)
+    Eigen::VectorXf velocities = getDOFVelocities(_all_dof_indices);
+    _base_link->setPose(Eigen::Vector3f(x, y, theta));
+    // restore velocities
+    updateBodyVelocities(velocities);
 }
 
 WorldPtr Box2DObject::getWorld() const {
@@ -913,14 +1060,12 @@ Eigen::VectorXi Box2DObject::getActiveDOFs() const {
 }
 
 Eigen::VectorXi Box2DObject::getDOFIndices() const {
-    Eigen::VectorXi dofs(_num_dofs);
-    for (unsigned int i = 0; i < _num_dofs; ++i) {
-        dofs[i] = i;
-    }
-    return dofs;
+    return _all_dof_indices;
 }
 
 Eigen::VectorXf Box2DObject::getDOFPositions(const Eigen::VectorXi &indices) const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     Eigen::VectorXi dofs_to_retrieve = indices;
     if (dofs_to_retrieve.size() == 0) {
         dofs_to_retrieve = _active_dof_indices;
@@ -941,6 +1086,8 @@ Eigen::VectorXf Box2DObject::getDOFPositions(const Eigen::VectorXi &indices) con
 }
 
 Eigen::ArrayX2f Box2DObject::getDOFPositionLimits(const Eigen::VectorXi& indices) const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     Eigen::VectorXi dofs_to_retrieve = indices;
     if (dofs_to_retrieve.size() == 0) {
         dofs_to_retrieve = _active_dof_indices;
@@ -964,8 +1111,10 @@ DOFInformation Box2DObject::getDOFInformation(unsigned int dof_index) const {
 }
 
 void Box2DObject::getDOFInformation(unsigned int dof_index, DOFInformation &info) const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     if (dof_index < getNumBaseDOFs()) {
-        switch (dof_index) {
+        switch(dof_index) {
             case 0: {
                 info = _x_dof_info;
                 break;
@@ -978,6 +1127,9 @@ void Box2DObject::getDOFInformation(unsigned int dof_index, DOFInformation &info
                 info = _theta_dof_info;
                 break;
             }
+            default: {
+                throw std::logic_error("[sim_env::Box2DObject::getDOFInformation] This code should never be reached.");
+            }
         }
     } else {
         JointConstPtr joint = getConstJointFromDOFIndex(dof_index);
@@ -988,16 +1140,20 @@ void Box2DObject::getDOFInformation(unsigned int dof_index, DOFInformation &info
 void Box2DObject::setDOFPositions(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
     auto world = getBox2DWorld();
     Box2DWorldLock lock(world->getMutex());
+    // first figure out what dofs to set positions for
     Eigen::VectorXi dofs_to_set = indices;
     if (dofs_to_set.size() == 0) {
         dofs_to_set = _active_dof_indices;
     }
-    // TODO do we need to be sure these are sorted?
+    // TODO do we need to be sure these are sorted? Yes, they have to, but don't wanna do this check all the time
     if (dofs_to_set.size() != values.size()) {
         throw std::runtime_error("[sim_env::Box2DObject::setDOFPositions] Could not set DOF positions."
                                          " Number of indices to set and number of provided values"
                                          " do not match.");
     }
+    // we need to save the dof velocities before resetting positions
+    Eigen::VectorXf velocities = getDOFVelocities(_all_dof_indices);
+    // update positions
     for (unsigned int i = 0; i < dofs_to_set.size(); ++i) {
         int dof = dofs_to_set[i];
         if (dof < 3 && not _is_static) {
@@ -1007,12 +1163,16 @@ void Box2DObject::setDOFPositions(const Eigen::VectorXf &values, const Eigen::Ve
             _base_link->setPose(current_pose);
         } else {
             int joint_index = _is_static ? dof : dof - 3;
-            _sorted_joints[joint_index]->setPosition(values[i]);
+            _sorted_joints[joint_index]->resetPosition(values[i], false);
         }
     }
+    // finally reset to previous velocities given the new positions
+    updateBodyVelocities(velocities);
 }
 
 Eigen::VectorXf Box2DObject::getDOFVelocities(const Eigen::VectorXi &indices) const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     Eigen::VectorXi dofs_to_retrieve = indices;
     if (dofs_to_retrieve.size() == 0) {
         dofs_to_retrieve = _active_dof_indices;
@@ -1033,6 +1193,8 @@ Eigen::VectorXf Box2DObject::getDOFVelocities(const Eigen::VectorXi &indices) co
 }
 
 Eigen::ArrayX2f Box2DObject::getDOFVelocityLimits(const Eigen::VectorXi& indices) const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     Eigen::VectorXi dofs_to_retrieve = indices;
     if (dofs_to_retrieve.size() == 0) {
         dofs_to_retrieve = _active_dof_indices;
@@ -1050,6 +1212,8 @@ Eigen::ArrayX2f Box2DObject::getDOFVelocityLimits(const Eigen::VectorXi& indices
 }
 
 Eigen::ArrayX2f Box2DObject::getDOFAccelerationLimits(const Eigen::VectorXi &indices) const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     Eigen::VectorXi dofs_to_retrieve = indices;
     if (dofs_to_retrieve.size() == 0) {
         dofs_to_retrieve = _active_dof_indices;
@@ -1069,6 +1233,7 @@ Eigen::ArrayX2f Box2DObject::getDOFAccelerationLimits(const Eigen::VectorXi &ind
 void Box2DObject::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
     auto world = getBox2DWorld();
     Box2DWorldLock lock(world->getMutex());
+    // first determine what dofs we have to set
     Eigen::VectorXi dofs_to_set = indices;
     if (dofs_to_set.size() == 0) {
         dofs_to_set = _active_dof_indices;
@@ -1078,26 +1243,28 @@ void Box2DObject::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::V
                                          " Number of indices to set and number of provided values"
                                          " do not match.");
     }
+    // velocity changes affect the whole kinematic subchain, hence we need to reset everything
+    Eigen::VectorXf all_velocities = getDOFVelocities(_all_dof_indices); // get all current velocities
+    Eigen::ArrayX2f limits = getDOFVelocityLimits(indices);
+    // now overwrite the velocities that are requested to be changed
     for (unsigned int i = 0; i < dofs_to_set.size(); ++i) {
         int dof = dofs_to_set[i];
-        if (dof < 3 && not _is_static) {
-            Eigen::Vector3f current_velocity;
-            _base_link->getVelocityVector(current_velocity);
-            current_velocity[dof] = values[i];
-            _base_link->setVelocityVector(current_velocity);
-        } else {
-            int joint_index = _is_static ? dof : dof - 3;
-            _sorted_joints[joint_index]->setVelocity(values[i]);
-        }
+        all_velocities[dof] = utils::math::clamp(values[i], limits(i, 0), limits(i, 1));
     }
+    // update the kinematic chain
+    updateBodyVelocities(all_velocities);
 }
 
 bool Box2DObject::atRest(float threshold) const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     Eigen::VectorXf vel = getDOFVelocities(getDOFIndices());
     return vel.lpNorm<Eigen::Infinity>() <= threshold;
 }
 
 void Box2DObject::setName(const std::string &name) {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     _name = name;
     // let all links and joints know that we have a new name
     for (auto& link : _links) {
@@ -1177,6 +1344,8 @@ unsigned int Box2DObject::getNumDOFs() const {
 }
 
 unsigned int Box2DObject::getNumActiveDOFs() const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     Eigen::VectorXi active_dofs = getActiveDOFs();
     return (unsigned int) active_dofs.size();
 }
@@ -1218,6 +1387,8 @@ JointConstPtr Box2DObject::getConstJointFromDOFIndex(unsigned int dof_idx) const
 }
 
 float Box2DObject::getInertia() const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     Eigen::Vector2f com = _base_link->getCenterOfMass();
     float inertia = 0.0f;
     for (auto& name_link_pair : _links) {
@@ -1238,6 +1409,14 @@ void Box2DObject::getBox2DLinks(std::vector<Box2DLinkPtr> &links) {
     }
 }
 
+void Box2DObject::setPose(float x, float y, float theta) {
+    auto world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
+    Eigen::VectorXf vel = getDOFVelocities(_all_dof_indices);
+    _base_link->setPose(Eigen::Vector3f(x,y,theta), true);
+    updateBodyVelocities(vel);
+}
+
 void Box2DObject::getBodies(std::vector<b2Body *> &bodies) {
     for (auto& link : _links) {
         Box2DLinkPtr box2d_link = link.second;
@@ -1246,6 +1425,8 @@ void Box2DObject::getBodies(std::vector<b2Body *> &bodies) {
 }
 
 void Box2DObject::getState(ObjectState &object_state) const {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     object_state.active_dofs = _active_dof_indices;
     Eigen::VectorXi all_indices = getDOFIndices();
     object_state.dof_positions = getDOFPositions(all_indices);
@@ -1260,6 +1441,8 @@ ObjectState Box2DObject::getState() const {
 }
 
 void Box2DObject::setState(const ObjectState &object_state) {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     _active_dof_indices = object_state.active_dofs;
     setTransform(object_state.pose);
     Eigen::VectorXi all_indices = getDOFIndices();
@@ -1275,6 +1458,30 @@ LinkPtr Box2DObject::getLink(b2Body *body) {
         }
     }
     return sim_env::LinkPtr(nullptr);
+}
+
+void Box2DObject::updateBodyVelocities(const Eigen::VectorXf& all_dof_velocities) {
+    Eigen::VectorXf velocities = all_dof_velocities;
+    unsigned int index_offset = 0;
+    if (_is_static) { // in case the base link is static, we need to shift the velocity vector
+        velocities = Eigen::VectorXf(all_dof_velocities.size() + 3);
+        // to contain fake base velocities
+        velocities[0] = 0.0f;
+        velocities[1] = 0.0f;
+        velocities[2] = 0.0f;
+        for (unsigned int i = 3; i < velocities.size(); ++i) {
+            velocities[i] = all_dof_velocities[i - 3];
+        }
+        index_offset = 3;
+    }
+    // add the mobile base as a fake joint (that rotates around the base link's center)
+    std::vector< std::pair<b2Vec2, unsigned int> > parent_joints;
+    Eigen::Vector3f pose;
+    _base_link->getPose(pose);
+    float scale = getBox2DWorld()->getScale();
+    auto pair = std::make_pair(b2Vec2(scale * pose[0], scale * pose[1]), 2); // this models this fake joint
+    parent_joints.push_back(pair);
+    _base_link->updateBodyVelocities(velocities, parent_joints, index_offset);
 }
 
 
@@ -1309,6 +1516,7 @@ Box2DRobot::~Box2DRobot() {
 }
 
 void Box2DRobot::destroy(const std::shared_ptr<b2World>& b2world) {
+//    sim_env::DefaultLogger::getInstance()->logDebug("Destroying Box2DRobot", "[sim_env::Box2DRobot::destroy]");
     _robot_object->destroy(b2world);
     _destroyed = true;
 }
@@ -1460,6 +1668,9 @@ void Box2DRobot::control(float timestep) {
     if (not _controller_callback) {
         return;
     }
+    // also lock the world
+    WorldPtr world = getWorld();
+    Box2DWorldLock world_lock(world->getMutex());
     // Get positions of currently active DoFs
     Eigen::VectorXf positions = getDOFPositions();
     // Get velocities of currently active DoFs
@@ -1597,6 +1808,10 @@ LinkPtr Box2DRobot::getLink(b2Body *body) {
     return _robot_object->getLink(body);
 }
 
+Box2DObjectPtr Box2DRobot::getBox2DObject() {
+    return _robot_object;
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DCollisionChecker members *///////////////////////
@@ -1623,6 +1838,8 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a, Box2
 }
 
 bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable) {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     updateContacts();
     std::vector<b2Body*> bodies;
     collidable->getBodies(bodies);
@@ -1636,10 +1853,8 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable) {
 
 bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable, std::vector<Contact> &contacts) {
     bool is_in_collision = false;
-    Box2DWorldPtr world = _weak_world.lock();
-    if (!world) {
-        throw std::logic_error("[sim_env::Box2DCollisionChecker::checkCollision] Could not access Box2DWorld");
-    }
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     updateContacts();
     std::vector<b2Body*> bodies;
     collidable->getBodies(bodies);
@@ -1669,6 +1884,8 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable, std::v
 }
 
 bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a, const std::vector<Box2DCollidablePtr> &collidables) {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     // compute contacts
     updateContacts();
     // we only need to get the bodies of collidable a once
@@ -1703,6 +1920,8 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a, cons
 bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a,
                                            const std::vector<Box2DCollidablePtr> &collidables,
                                            std::vector<Contact> &contacts) {
+    WorldPtr world = getWorld();
+    Box2DWorldLock lock(world->getMutex());
     bool is_in_collision = false;
     // compute contacts
     updateContacts();
@@ -1854,8 +2073,13 @@ LinkPtr Box2DCollisionChecker::getLink(b2Body *body, Box2DCollidablePtr collidab
     return nullptr;
 }
 
-
-
+Box2DWorldPtr Box2DCollisionChecker::getWorld() {
+    Box2DWorldPtr world = _weak_world.lock();
+    if (!world) {
+        throw std::logic_error("[sim_env::Box2DCollisionChecker::checkCollision] Could not access Box2DWorld");
+    }
+    return world;
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DWorld members *///////////////////////
@@ -1866,10 +2090,12 @@ Box2DWorld::Box2DWorld() : _world(nullptr), _b2_ground_body(nullptr), _collision
 }
 
 Box2DWorld::~Box2DWorld() {
+//    _logger->logDebug("Destructor of Box2DWorld", "[sim_env::Box2DWorld::~Box2DWorld]");
     eraseWorld();
 }
 
 void Box2DWorld::loadWorld(const std::string &path) {
+    Box2DWorldLock lock(getMutex());
     Box2DEnvironmentDescription env_desc = Box2DEnvironmentDescription();
     parseYAML(path, env_desc);
     eraseWorld();
@@ -1885,6 +2111,7 @@ RobotConstPtr Box2DWorld::getRobotConst(const std::string &name) const {
 }
 
 Box2DRobotPtr Box2DWorld::getBox2DRobot(const std::string &name) {
+    Box2DWorldLock lock(getMutex());
     if (_robots.count(name)) {
         return _robots.at(name);
     }
@@ -1892,6 +2119,7 @@ Box2DRobotPtr Box2DWorld::getBox2DRobot(const std::string &name) {
 }
 
 Box2DRobotConstPtr Box2DWorld::getBox2DRobotConst(const std::string &name) const {
+    Box2DWorldLock lock(getMutex());
     if (_robots.count(name)) {
         return _robots.at(name);
     }
@@ -1899,18 +2127,21 @@ Box2DRobotConstPtr Box2DWorld::getBox2DRobotConst(const std::string &name) const
 }
 
 void Box2DWorld::getRobots(std::vector<RobotPtr> &robots) {
+    Box2DWorldLock lock(getMutex());
     for (auto &robot_map_iter : _robots) {
         robots.push_back(robot_map_iter.second);
     }
 }
 
 void Box2DWorld::getRobots(std::vector<RobotConstPtr> &robots) const {
+    Box2DWorldLock lock(getMutex());
     for (auto &robot_map_iter : _robots) {
         robots.push_back(robot_map_iter.second);
     }
 }
 
 ObjectPtr Box2DWorld::getObject(const std::string &name, bool exclude_robots) {
+    Box2DWorldLock lock(getMutex());
     ObjectPtr object = getBox2DObject(name);
     if (not object and not exclude_robots) {
         if (_robots.count(name)) {
@@ -1921,6 +2152,7 @@ ObjectPtr Box2DWorld::getObject(const std::string &name, bool exclude_robots) {
 }
 
 ObjectConstPtr Box2DWorld::getObjectConst(const std::string &name, bool exclude_robots) const {
+    Box2DWorldLock lock(getMutex());
     ObjectConstPtr object = getBox2DObjectConst(name);
     if (not object and not exclude_robots) {
         if (_robots.count(name)) {
@@ -1931,6 +2163,7 @@ ObjectConstPtr Box2DWorld::getObjectConst(const std::string &name, bool exclude_
 }
 
 Box2DObjectPtr Box2DWorld::getBox2DObject(const std::string& name) {
+    Box2DWorldLock lock(getMutex());
     if (_objects.count(name)) {
         return _objects.at(name);
     }
@@ -1938,6 +2171,7 @@ Box2DObjectPtr Box2DWorld::getBox2DObject(const std::string& name) {
 }
 
 Box2DObjectConstPtr Box2DWorld::getBox2DObjectConst(const std::string& name) const {
+    Box2DWorldLock lock(getMutex());
     if (_objects.count(name)) {
         return _objects.at(name);
     }
@@ -1945,6 +2179,7 @@ Box2DObjectConstPtr Box2DWorld::getBox2DObjectConst(const std::string& name) con
 }
 
 void Box2DWorld::getObjects(std::vector<ObjectPtr> &objects, bool exclude_robots) {
+    Box2DWorldLock lock(getMutex());
     if (!exclude_robots) {
         std::vector<RobotPtr> robots;
         getRobots(robots);
@@ -1956,6 +2191,7 @@ void Box2DWorld::getObjects(std::vector<ObjectPtr> &objects, bool exclude_robots
 }
 
 void Box2DWorld::getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_robots) const {
+    Box2DWorldLock lock(getMutex());
     if (!exclude_robots) {
         std::vector<RobotConstPtr> robots;
         getRobots(robots);
@@ -1969,12 +2205,24 @@ void Box2DWorld::getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_r
 void Box2DWorld::stepPhysics(int steps) {
     Box2DWorldLock lock(getMutex());
     for (int i = 0; i < steps; ++i) {
+        // TODO delete the following
+        {
+            std::stringstream ss;
+            std::vector<Box2DLinkPtr> links;
+            _robots["my_robot"]->getBox2DLinks(links);
+            for (auto link : links) {
+                ss << "link " << link->getName() << " vel: " << link->getVelocityVector().transpose();
+                _logger->logDebug(ss.str());
+                ss.str("");
+            }
+        } // TODO until here
         // call control functions of all robots in the scene
         for (auto& robot_map_iter : _robots) {
             robot_map_iter.second->control(_time_step);
         }
         // simulate physics
         _world->Step(_time_step, _velocity_steps, _position_steps);
+        _world->ClearForces();
     }
 }
 
@@ -2048,6 +2296,7 @@ std::recursive_mutex& Box2DWorld::getMutex() const {
 }
 
 bool Box2DWorld::atRest(float threshold) const {
+    Box2DWorldLock lock(getMutex());
     bool at_rest = true;
     for (auto& object : _objects) {
         at_rest = at_rest && object.second->atRest(threshold);
@@ -2108,6 +2357,7 @@ bool Box2DWorld::setWorldState(WorldState &state) {
 
 void Box2DWorld::saveState() {
     Box2DWorldLock lock(getMutex());
+    _logger->logDebug("SAVING STATE");
     WorldState state;
     getWorldState(state);
     _state_stack.push(state);
@@ -2115,6 +2365,7 @@ void Box2DWorld::saveState() {
 
 bool Box2DWorld::restoreState() {
     Box2DWorldLock lock(getMutex());
+    _logger->logDebug("RESTORING STATE");
     if (_state_stack.empty()) {
         return false;
     }
@@ -2133,16 +2384,20 @@ b2Body* Box2DWorld::getGroundBody() {
 
 ////////////////////////////// PRIVATE FUNCTIONS //////////////////////////////
 void Box2DWorld::eraseWorld() {
+//    DefaultLogger::getInstance()->logDebug("Erasing world", "[sim_env::Box2DWorld::eraseWorld]");
     Box2DWorldLock lock(_world_mutex);
     for (auto& robot_iter : _robots) {
+//        DefaultLogger::getInstance()->logDebug("Erasing a robot", "[sim_env::Box2DWorld::eraseWorld]");
         robot_iter.second->destroy(_world);
     }
     _robots.clear();
     for (auto& object_iter : _objects) {
+//        DefaultLogger::getInstance()->logDebug("Erasing an object", "[sim_env::Box2DWorld::eraseWorld]");
         object_iter.second->destroy(_world);
     }
     _objects.clear();
     if (_b2_ground_body) {
+//        DefaultLogger::getInstance()->logDebug("Deleting ground", "[sim_env::Box2DWorld::eraseWorld]");
         _world->DestroyBody(_b2_ground_body);
         _b2_ground_body = nullptr;
     }
@@ -2209,9 +2464,9 @@ void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
         createNewObject(object_desc);
     }
     for (auto &state_desc : env_desc.states) {
-        ObjectPtr object = getObject(state_desc.first);
+        Box2DObjectPtr object = getBox2DObject(state_desc.first);
         if (object == nullptr) {
-            object = getRobot(state_desc.first);
+            object = getBox2DRobot(state_desc.first)->getBox2DObject();
             if (object == nullptr) {
                 std::string err_msg = boost::str(boost::format("Could not find object %1 in scene. Skipping this...")
                                                  % state_desc.first);
@@ -2220,8 +2475,24 @@ void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
                 continue;
             }
         }
-        object->setDOFPositions(state_desc.second.configuration);
-        object->setDOFVelocities(state_desc.second.velocity);
+        if (not object->isStatic()) {
+            object->setDOFPositions(state_desc.second.configuration);
+            object->setDOFVelocities(state_desc.second.velocity);
+        } else {
+            // TODO print an error message instead of an assert and assign default
+            assert(state_desc.second.configuration.size() >= 3);
+            object->setPose(state_desc.second.configuration[0],
+                            state_desc.second.configuration[1],
+                            state_desc.second.configuration[2]);
+            Eigen::VectorXf remaining_config(state_desc.second.configuration.size() - 3);
+            Eigen::VectorXf remaining_vel(state_desc.second.configuration.size() - 3);
+            for (unsigned int i = 3; i < state_desc.second.configuration.size(); ++i) {
+                remaining_config[i - 3] = state_desc.second.configuration[i];
+                remaining_vel[i-3] = state_desc.second.velocity[i];
+            }
+            object->setDOFPositions(remaining_config);
+            object->setDOFVelocities(remaining_vel);
+        }
     }
     _collision_checker = std::make_shared<Box2DCollisionChecker>(shared_from_this());
     b2ContactListener* contact_listener = _collision_checker.get();

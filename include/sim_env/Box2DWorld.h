@@ -126,8 +126,8 @@ namespace sim_env{
 
         void getChildJoints(std::vector<JointPtr>& child_joints) override;
         void getConstChildJoints(std::vector<JointConstPtr>& child_joints) const override;
-        void getParentJoints(std::vector<JointPtr>& parent_joints) override;
-        void getConstParentJoints(std::vector<JointConstPtr>& parent_joints) const override;
+        JointPtr getParentJoint() override;
+        JointConstPtr getConstParentJoint() const override;
 
         void getGeometry(std::vector< std::vector<Eigen::Vector2f> >& geometry) const;
         // Box2D specific
@@ -155,16 +155,16 @@ namespace sim_env{
         // registers a parent joint
         void registerParentJoint(Box2DJointPtr joint);
         // sets the transform of this link. Should not be called externally. Calls setPose(pose, true, false)
-        void setTransform(const Eigen::Affine3f& tf);
+//        void setTransform(const Eigen::Affine3f& tf);
         /*
          * Sets the pose of this link. If update_children is true, all child links are moved together with this link.
          * if joint_override is true, the relative transforms between this link and its children is set
          * to the initial transform defined by the joint connecting both links (i.e. it is set to joint position 0)
          */
         void setPose(const Eigen::Vector3f& pose, bool update_children=true, bool joint_override=false);
-        // sets the velocity (translational x,y and rotational) of this link. Should not be called externally.
-        void setVelocityVector(const Eigen::Vector3f& velocity, bool relative=false);
-        // resets the origin of this link to its center of mass
+        // sets the velocity of the underlying box2d body. velocities need to be scaled to box2d scale
+        void setVelocityVector(const Eigen::Vector3f& velocity);
+        // resets the origin of this link to its center of mass (ONLY FOR BASE LINKS)
         void setOriginToCenterOfMass();
         // Adds the body of this link to the given vector - used for collision checks
         void getBodies(std::vector<b2Body *> &bodies) override;
@@ -178,16 +178,20 @@ namespace sim_env{
         std::string _name;
         std::string _object_name;
         std::vector<Box2DJointWeakPtr> _child_joints;
-        std::vector<Box2DJointWeakPtr> _parent_joints;
+        Box2DJointWeakPtr _parent_joint;
         bool _destroyed;
 
         /*
-         * Recursively propagates a velocity change through a kinematic chain.
-         * @param lin_vel linear velocity change in global frame (scaled to box2d world)
-         * @param dw angular velocity change
-         * @param parent pointer to the parent body (used for coordinate transformations)
+         * Recursively propagates a new absolute velocity of a parent frame through a kinematic chain.
+         * @param lin_vel new linear velocity of the parent in global frame (scaled to box2d world)
+         * @param dw angular new angular velocity  of parent
+         * @param joint_vel joint_velocity of the joint connecting the parent with this link
+         * @param parent pointer to the parent body
          */
-        void propagateVelocityChange(const float& dx, const float& dy, const float& dw, const b2Body* parent);
+//        void propagateVelocityChange(float v_x, float v_y, float v_theta, float v_joint, b2Body* parent);
+        void updateBodyVelocities(const Eigen::VectorXf& all_dof_velocities,
+                                  std::vector< std::pair<b2Vec2, unsigned int> >& parent_joints,
+                                  unsigned int index_offset);
     };
 
     /**
@@ -253,6 +257,12 @@ namespace sim_env{
         void setDOFIndex(unsigned int index);
         void resetPosition(float value, bool child_joint_override);
         void setControlTorque(float value);
+        // retuns axis position in parent frame
+        b2Vec2 getLocalAxisPosition() const;
+        // returns axis position in global frame
+        b2Vec2 getGlobalAxisPosition() const;
+        // returns the box2d object this joint belongs to
+        Box2DObjectPtr getBox2DObject();
     private:
         Box2DWorldWeakPtr _world;
         std::string _name;
@@ -356,6 +366,7 @@ namespace sim_env{
         float getInertia() const; //TODO maybe make it part of the sim_env interface (with Eigen::MatrixXf as return type?)
         virtual Box2DLinkPtr getBox2DBaseLink();
         void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
+        void setPose(float x, float y, float theta);
 
     protected:
         // ensure only friend classes can construct this
@@ -367,6 +378,7 @@ namespace sim_env{
         // puts all link bodies into the given list (for collision checking)
         void getBodies(std::vector<b2Body *> &bodies) override;
         LinkPtr getLink(b2Body* body) override;
+        void updateBodyVelocities(const Eigen::VectorXf& all_dof_velocities);
 
         // these can be overwritten by Box2DRobot
         DOFInformation _x_dof_info;
@@ -377,6 +389,7 @@ namespace sim_env{
         Box2DWorldWeakPtr _world;
         float _mass;
         Eigen::VectorXi _active_dof_indices;
+        Eigen::VectorXi _all_dof_indices;
         unsigned int _num_dofs;
         std::map<std::string, Box2DLinkPtr> _links; // the object is responsible for the lifetime of its links
         Box2DLinkPtr _base_link;
@@ -392,6 +405,7 @@ namespace sim_env{
      */
     class Box2DRobot : public Robot, public Box2DCollidable, public std::enable_shared_from_this<Box2DRobot>{
         friend class Box2DWorld;
+        friend class Box2DJoint;
     public:
         /**
          * A Box2DRobot can only be instantiated by a Box2DWorld.
@@ -467,6 +481,8 @@ namespace sim_env{
         // retrieve all box2d bodies (for collision checking)
         void getBodies(std::vector<b2Body *> &bodies) override;
         LinkPtr getLink(b2Body* body) override;
+        // returns the underlying box2d object
+        Box2DObjectPtr getBox2DObject();
 
     private:
         bool _destroyed;
@@ -553,6 +569,7 @@ namespace sim_env{
         void addContact(b2Body* body_a, b2Body* body_b, b2Contact* contact);
         bool areInContact(b2Body* body_a, b2Body* body_b) const;
         bool hasContacts(b2Body* body) const;
+        Box2DWorldPtr getWorld();
         LinkPtr getLink(b2Body* body, Box2DCollidablePtr collidable);
     };
 
@@ -587,12 +604,12 @@ namespace sim_env{
         void getRobots(std::vector<RobotPtr> &robots) override;
         void getRobots(std::vector<RobotConstPtr> &robots) const override;
 
-        ObjectPtr getObject(const std::string &name, bool exclude_robots=true) override;
-        ObjectConstPtr getObjectConst(const std::string &name, bool exclude_robots=true) const override;
+        ObjectPtr getObject(const std::string &name, bool exclude_robots) override;
+        ObjectConstPtr getObjectConst(const std::string &name, bool exclude_robots) const override;
         Box2DObjectPtr getBox2DObject(const std::string& name);
         Box2DObjectConstPtr getBox2DObjectConst(const std::string& name) const;
-        void getObjects(std::vector<ObjectPtr> &objects, bool exclude_robots=true) override;
-        void getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_robots=true) const override;
+        void getObjects(std::vector<ObjectPtr> &objects, bool exclude_robots) override;
+        void getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_robots) const override;
 
         void stepPhysics(int steps) override;
         bool supportsPhysics() const override;
