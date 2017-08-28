@@ -612,6 +612,7 @@ namespace sim_env{
         void getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_robots) const override;
 
         void stepPhysics(int steps) override;
+        void stepPhysics(int steps, bool execute_controller);
         bool supportsPhysics() const override;
         void setPhysicsTimeStep(float physics_step) override;
         void setVelocitySteps(int velocity_steps);
@@ -651,6 +652,7 @@ namespace sim_env{
         WorldState getWorldState() const override;
         void getWorldState(WorldState &state) const override;
         bool setWorldState(WorldState &state) override;
+        void printWorldState(Logger::LogLevel level) const override;
 
         // Box2D specific
         float getScale() const;

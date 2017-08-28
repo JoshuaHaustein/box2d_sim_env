@@ -2028,7 +2028,7 @@ void Box2DCollisionChecker::updateContacts() {
     }
     Box2DWorldLock lock(world->getMutex());
     world->saveState();
-    world->stepPhysics(1);
+    world->stepPhysics(1, false);
     world->restoreState();
     _record_contacts = false;
 }
@@ -2203,22 +2203,17 @@ void Box2DWorld::getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_r
 }
 
 void Box2DWorld::stepPhysics(int steps) {
+    stepPhysics(steps, true);
+}
+
+void Box2DWorld::stepPhysics(int steps, bool execute_controllers) {
     Box2DWorldLock lock(getMutex());
     for (int i = 0; i < steps; ++i) {
-        // TODO delete the following
-        {
-            std::stringstream ss;
-            std::vector<Box2DLinkPtr> links;
-            _robots["my_robot"]->getBox2DLinks(links);
-            for (auto link : links) {
-                ss << "link " << link->getName() << " vel: " << link->getVelocityVector().transpose();
-                _logger->logDebug(ss.str());
-                ss.str("");
+        if (execute_controllers) {
+            // call control functions of all robots in the scene
+            for (auto& robot_map_iter : _robots) {
+                robot_map_iter.second->control(_time_step);
             }
-        } // TODO until here
-        // call control functions of all robots in the scene
-        for (auto& robot_map_iter : _robots) {
-            robot_map_iter.second->control(_time_step);
         }
         // simulate physics
         _world->Step(_time_step, _velocity_steps, _position_steps);
@@ -2333,6 +2328,21 @@ void Box2DWorld::getWorldState(WorldState &state) const {
     }
 }
 
+void Box2DWorld::printWorldState(Logger::LogLevel level) const {
+    const static std::string prefix("[sim_env::Box2DWorld::printWorldState]");
+    WorldState state = getWorldState();
+    _logger->log("World state: ", level, prefix);
+    for (auto& state_item : state) {
+        std::stringstream ss;
+        ss << state_item.first;
+        ObjectState& obj_state = state_item.second;
+        ss << " positions: " << obj_state.dof_positions.transpose();
+        ss << " velocities: " << obj_state.dof_velocities.transpose();
+        ss << " active_dofs: " << obj_state.active_dofs.transpose();
+        _logger->log(ss.str(), level, prefix);
+    }
+}
+
 bool Box2DWorld::setWorldState(WorldState &state) {
     Box2DWorldLock lock(_world_mutex);
     bool b_success = true;
@@ -2357,7 +2367,6 @@ bool Box2DWorld::setWorldState(WorldState &state) {
 
 void Box2DWorld::saveState() {
     Box2DWorldLock lock(getMutex());
-    _logger->logDebug("SAVING STATE");
     WorldState state;
     getWorldState(state);
     _state_stack.push(state);
@@ -2365,7 +2374,6 @@ void Box2DWorld::saveState() {
 
 bool Box2DWorld::restoreState() {
     Box2DWorldLock lock(getMutex());
-    _logger->logDebug("RESTORING STATE");
     if (_state_stack.empty()) {
         return false;
     }
@@ -2466,7 +2474,10 @@ void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
     for (auto &state_desc : env_desc.states) {
         Box2DObjectPtr object = getBox2DObject(state_desc.first);
         if (object == nullptr) {
-            object = getBox2DRobot(state_desc.first)->getBox2DObject();
+            Box2DRobotPtr robot = getBox2DRobot(state_desc.first);
+            if (robot != nullptr) {
+                object = robot->getBox2DObject();
+            }
             if (object == nullptr) {
                 std::string err_msg = boost::str(boost::format("Could not find object %1 in scene. Skipping this...")
                                                  % state_desc.first);
@@ -2639,5 +2650,6 @@ LinkPtr Box2DWorld::getLink(b2Body *body) {
     }
     return nullptr;
 }
+
 
 

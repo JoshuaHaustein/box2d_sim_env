@@ -2,7 +2,7 @@
 // Created by joshua on 6/26/17.
 //
 
-// out includes
+// our includes
 #include <sim_env/Box2DWorldViewer.h>
 #include <sim_env/Box2DController.h>
 // stl includes
