@@ -2286,6 +2286,10 @@ float Box2DWorld::getGravity() const {
     return GRAVITY * getScale();
 }
 
+Eigen::Vector4f Box2DWorld::getWorldBounds() const {
+    return _world_bounds;
+}
+
 std::recursive_mutex& Box2DWorld::getMutex() const {
     return _world_mutex;
 }
@@ -2442,12 +2446,12 @@ void Box2DWorld::createGround(const Eigen::Vector4f &world_bounds) {
     // Create ground body
     b2BodyDef ground_body_def;
     ground_body_def.type = b2_staticBody;
-    ground_body_def.position.Set(0.5f * (world_bounds[0] + world_bounds[2]),
-                                 0.5f * (world_bounds[1] + world_bounds[3]));
+    ground_body_def.position.Set(0.5f * _scale * (world_bounds[0] + world_bounds[2]),
+                                 0.5f * _scale * (world_bounds[1] + world_bounds[3]));
     _b2_ground_body = _world->CreateBody(&ground_body_def);
     b2FixtureDef fd;
     b2PolygonShape ground_shape;
-    ground_shape.SetAsBox(world_bounds[2] - world_bounds[0], world_bounds[3] - world_bounds[1]);
+    ground_shape.SetAsBox(_scale * (world_bounds[2] - world_bounds[0]), _scale * (world_bounds[3] - world_bounds[1]));
     fd.shape = &ground_shape;
     fd.isSensor = true;
     _b2_ground_body->CreateFixture(&fd);
@@ -2458,13 +2462,13 @@ void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
     _world.reset(new b2World(b2Vec2(0.0, 0.0)));
     _scale = env_desc.scale;
     // Get the dimension of the ground plane
-    Eigen::Vector4f world_bounds(env_desc.world_bounds);
-    if (world_bounds.norm() == 0.0) {
-        world_bounds << float(GROUND_DEFAULT_MIN_X), float(GROUND_DEFAULT_MIN_Y),
+    _world_bounds = env_desc.world_bounds;
+    if(_world_bounds.norm() == 0.0) {
+        _world_bounds << float(GROUND_DEFAULT_MIN_X), float(GROUND_DEFAULT_MIN_Y),
                 float(GROUND_DEFAULT_MAX_X), float(GROUND_DEFAULT_MAX_Y);
-        world_bounds = _scale * world_bounds;
+        _world_bounds = _scale * _world_bounds;
     }
-    createGround(world_bounds);
+    createGround(_world_bounds);
     for (auto &robot_desc : env_desc.robots) {
         createNewRobot(robot_desc);
     }
@@ -2650,6 +2654,7 @@ LinkPtr Box2DWorld::getLink(b2Body *body) {
     }
     return nullptr;
 }
+
 
 
 

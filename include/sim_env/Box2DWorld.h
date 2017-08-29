@@ -583,6 +583,7 @@ namespace sim_env{
         friend class Box2DRobot;
         friend class Box2DCollisionChecker;
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
         static constexpr float GROUND_DEFAULT_MIN_X = -100.0f;
         static constexpr float GROUND_DEFAULT_MIN_Y = -100.0f;
         static constexpr float GROUND_DEFAULT_MAX_X = 100.0f;
@@ -658,6 +659,7 @@ namespace sim_env{
         float getScale() const;
         float getInverseScale() const;
         float getGravity() const;
+        Eigen::Vector4f getWorldBounds() const;
 
     protected:
         std::shared_ptr<b2World> getRawBox2DWorld();
@@ -676,6 +678,7 @@ namespace sim_env{
         std::map<std::string, Box2DObjectPtr> _objects;
         std::map<std::string, Box2DRobotPtr> _robots;
         std::stack<WorldState> _state_stack;
+        Eigen::Vector4f _world_bounds;
 
         void eraseWorld();
         void createWorld(const Box2DEnvironmentDescription& env_desc);

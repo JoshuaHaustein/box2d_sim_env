@@ -12,6 +12,7 @@
 #include <yaml-cpp/yaml.h>
 #include <boost/filesystem/path.hpp>
 #include <boost/filesystem/operations.hpp>
+#include <boost/format.hpp>
 
 namespace sim_env {
     struct Box2DLinkDescription {
@@ -128,6 +129,9 @@ namespace sim_env {
         // First get the root path of our environment file, we might it to resolve relative paths.
         sim_env::LoggerPtr logger = sim_env::DefaultLogger::getInstance();
         boost::filesystem::path root_path(filename);
+        if (not boost::filesystem::exists(root_path)) {
+            logger->logErr(boost::str(boost::format("Could not open the file %s as it does not exist.") % filename));
+        }
         root_path = root_path.parent_path();
         // load file
         YAML::Node node = YAML::LoadFile(filename);
