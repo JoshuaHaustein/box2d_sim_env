@@ -1258,7 +1258,9 @@ void Box2DObject::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::V
 bool Box2DObject::atRest(float threshold) const {
     WorldPtr world = getWorld();
     Box2DWorldLock lock(world->getMutex());
-    Eigen::VectorXf vel = getDOFVelocities(getDOFIndices());
+    Eigen::VectorXi dof_indices = getDOFIndices();
+    if (dof_indices.rows() == 0) return true;
+    Eigen::VectorXf vel = getDOFVelocities(dof_indices);
     return vel.lpNorm<Eigen::Infinity>() <= threshold;
 }
 
