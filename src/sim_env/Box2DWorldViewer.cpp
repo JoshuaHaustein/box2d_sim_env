@@ -995,6 +995,7 @@ sim_env::viewer::Box2DSimulationController::Box2DSimulationController(Box2DWorld
 }
 
 sim_env::viewer::Box2DSimulationController::~Box2DSimulationController() {
+    // TODO there is crash happening here
     terminateThread();
 }
 
@@ -1061,7 +1062,7 @@ void sim_env::Box2DWorldViewer::deleteArgs() {
     _argc = 0;
 }
 
-void sim_env::Box2DWorldViewer::show(int argc, char **argv) {
+void sim_env::Box2DWorldViewer::show(int argc, const char* const* argv) {
     if (_is_showing) {
         return;
     }

@@ -262,7 +262,7 @@ namespace sim_env {
          * @param argc - number of arguments stored in argv
          * @param argv - pointer to array of c-style strings. These parameters are forwarded to QApplication.
          */
-        void show(int argc = 0, char** argv = nullptr);
+        void show(int argc = 0, const char* const* argv = nullptr);
         void drawFrame(const Eigen::Affine3f &transform, float length=1.0f, float width=0.01f) override;
         void addCustomWidget(QWidget* widget, const std::string& name);
 
