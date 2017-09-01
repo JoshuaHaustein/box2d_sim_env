@@ -52,6 +52,8 @@ namespace sim_env{
     class Box2DWorldViewer;
     typedef std::shared_ptr<Box2DWorldViewer> Box2DWorldViewerPtr;
     typedef std::shared_ptr<const Box2DWorldViewer> Box2DWorldViewerConstPtr;
+    typedef std::weak_ptr<Box2DWorldViewer> Box2DWorldViewerWeakPtr;
+    typedef std::weak_ptr<const Box2DWorldViewer> Box2DWorldViewerConstWeakPtr;
 
     class Box2DCollisionChecker;
     typedef std::shared_ptr<Box2DCollisionChecker> Box2DCollisionCheckerPtr;

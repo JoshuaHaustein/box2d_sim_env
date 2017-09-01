@@ -952,8 +952,41 @@ void sim_env::viewer::Box2DWorldView::repopulate() {
     // TODO BUG sometimes objects aren't drawn until I zoom in and out again
 }
 
-void sim_env::viewer::Box2DWorldView::drawFrame(const Eigen::Affine3f& frame, float length, float width) {
-    _scene->addItem(new Box2DFrameView(frame, length, width));
+sim_env::WorldViewer::Handle sim_env::viewer::Box2DWorldView::drawFrame(const Eigen::Affine3f& frame, float length, float width) {
+    QGraphicsItem* item = new Box2DFrameView(frame, length, width);
+    return addDrawing(item);
+}
+
+sim_env::WorldViewer::Handle sim_env::viewer::Box2DWorldView::drawBox(const Eigen::Vector3f& pos,
+                                              const Eigen::Vector3f& extent,
+                                              bool solid,
+                                              float edge_width)
+{
+    QPen pen;
+    pen.setWidthF(edge_width);
+    QBrush brush;
+    if (solid) {
+        brush.setStyle(Qt::BrushStyle::SolidPattern);
+    } else {
+        brush.setStyle(Qt::BrushStyle::NoBrush);
+    }
+    QGraphicsRectItem *rect = new QGraphicsRectItem(pos[0], pos[1], extent[0], extent[1]);
+    rect->setBrush(brush);
+    rect->setPen(pen);
+    return addDrawing(rect);
+}
+
+void sim_env::viewer::Box2DWorldView::removeDrawing(const WorldViewer::Handle& handle)
+{
+    auto iter = _drawings.find(handle.getID());
+    if (iter != _drawings.end()) {
+        _scene->removeItem(iter->second);
+        _drawings.erase(iter);
+    } else {
+        sim_env::LoggerPtr logger = getLogger();
+        logger->logWarn("Requested to remove drawing with invalid handle.",
+                        "[sim_env::viewer::Box2DWorldView::removeDrawing]");
+    }
 }
 
 QSize sim_env::viewer::Box2DWorldView::sizeHint() const {
@@ -987,6 +1020,23 @@ void sim_env::viewer::Box2DWorldView::scaleView(double scale_factor) {
         return;
     }
     scale(scale_factor, scale_factor);
+}
+
+sim_env::WorldViewer::Handle sim_env::viewer::Box2DWorldView::addDrawing(QGraphicsItem* item) {
+    sim_env::WorldViewer::Handle handle;
+    _scene->addItem(item);
+    _drawings[handle.getID()] = item;
+    return handle;
+}
+
+sim_env::LoggerPtr sim_env::viewer::Box2DWorldView::getLogger() const
+{
+    Box2DWorldPtr world = _world.lock();
+    if (world) {
+        return world->getLogger();
+    } else {
+        return sim_env::DefaultLogger::getInstance();
+    }
 }
 /////////////////////////////////// Box2DSimulationController ///////////////////////////////////
 sim_env::viewer::Box2DSimulationController::Box2DSimulationController(Box2DWorldPtr world) {
@@ -1091,8 +1141,18 @@ int sim_env::Box2DWorldViewer::run() {
     return _app->exec();
 }
 
-void sim_env::Box2DWorldViewer::drawFrame(const Eigen::Affine3f &transform, float length, float width) {
-    _world_view->drawFrame(transform, length, width);
+sim_env::WorldViewer::Handle sim_env::Box2DWorldViewer::drawFrame(const Eigen::Affine3f &transform, float length, float width) {
+    return _world_view->drawFrame(transform, length, width);
+}
+
+sim_env::WorldViewer::Handle sim_env::Box2DWorldViewer::drawBox(const Eigen::Vector3f &pos, const Eigen::Vector3f &extent, bool solid,
+                                                                float edge_width) {
+    return _world_view->drawBox(pos, extent, solid, edge_width);
+}
+
+void sim_env::Box2DWorldViewer::removeDrawing(const sim_env::WorldViewer::Handle &handle)
+{
+    _world_view->removeDrawing(handle);
 }
 
 void sim_env::Box2DWorldViewer::log(const std::string &msg, const std::string& prefix,
@@ -1166,4 +1226,5 @@ QWidget* sim_env::Box2DWorldViewer::createSideBar() {
 void sim_env::Box2DWorldViewer::addCustomWidget(QWidget *widget, const std::string& name) {
     _bottom_tab_widget->addTab(widget, name.c_str());
 }
+
 

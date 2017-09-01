@@ -200,7 +200,9 @@ namespace sim_env {
              * set Box2D world.
              */
             void repopulate();
-            void drawFrame(const Eigen::Affine3f &frame, float length=1.0f, float width=0.01f);
+            WorldViewer::Handle drawFrame(const Eigen::Affine3f &frame, float length=1.0f, float width=0.01f);
+            WorldViewer::Handle drawBox(const Eigen::Vector3f& pos, const Eigen::Vector3f& extent, bool solid, float edge_width);
+            void removeDrawing(const WorldViewer::Handle& handle);
             virtual QSize sizeHint() const override;
 
         public slots:
@@ -212,6 +214,8 @@ namespace sim_env {
             void setSelectedObject(sim_env::ObjectWeakPtr object);
             void wheelEvent(QWheelEvent *event) override;
             void scaleView(double scale_factor);
+            WorldViewer::Handle addDrawing(QGraphicsItem* item);
+            LoggerPtr getLogger() const;
             // Variables
             QGraphicsScene *_scene;
             QTimer* _refresh_timer;
@@ -221,6 +225,7 @@ namespace sim_env {
             sim_env::ObjectWeakPtr _currently_selected_object;
             std::vector<Box2DObjectView *> _object_views;
             std::vector<Box2DRobotView *> _robot_views;
+            std::map<unsigned int, QGraphicsItem*> _drawings;
         };
 
         class Box2DSimulationController : public QObject {
@@ -263,7 +268,10 @@ namespace sim_env {
          * @param argv - pointer to array of c-style strings. These parameters are forwarded to QApplication.
          */
         void show(int argc = 0, const char* const* argv = nullptr);
-        void drawFrame(const Eigen::Affine3f &transform, float length=1.0f, float width=0.01f) override;
+        Handle drawFrame(const Eigen::Affine3f &transform, float length=1.0f, float width=0.01f) override;
+        Handle drawBox(const Eigen::Vector3f& pos, const Eigen::Vector3f& extent,
+                     bool solid=false, float edge_width=0.1f) override;
+        void removeDrawing(const Handle& handle) override;
         void addCustomWidget(QWidget* widget, const std::string& name);
 
     protected:
