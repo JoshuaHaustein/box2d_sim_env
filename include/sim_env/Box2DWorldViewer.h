@@ -202,6 +202,9 @@ namespace sim_env {
             void repopulate();
             WorldViewer::Handle drawFrame(const Eigen::Affine3f &frame, float length=1.0f, float width=0.01f);
             WorldViewer::Handle drawBox(const Eigen::Vector3f& pos, const Eigen::Vector3f& extent, bool solid, float edge_width);
+            WorldViewer::Handle drawLine(const Eigen::Vector3f& start, const Eigen::Vector3f& end,
+                                         const Eigen::Vector3f& color=Eigen::Vector3f(),
+                                         float width=0.1f);
             void removeDrawing(const WorldViewer::Handle& handle);
             virtual QSize sizeHint() const override;
 
@@ -271,6 +274,9 @@ namespace sim_env {
         Handle drawFrame(const Eigen::Affine3f &transform, float length=1.0f, float width=0.01f) override;
         Handle drawBox(const Eigen::Vector3f& pos, const Eigen::Vector3f& extent,
                      bool solid=false, float edge_width=0.1f) override;
+        Handle drawLine(const Eigen::Vector3f& start, const Eigen::Vector3f& end,
+                        const Eigen::Vector3f& color=Eigen::Vector3f(),
+                        float width=0.1f) override;
         void removeDrawing(const Handle& handle) override;
         void addCustomWidget(QWidget* widget, const std::string& name);
 

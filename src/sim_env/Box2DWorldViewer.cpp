@@ -976,6 +976,20 @@ sim_env::WorldViewer::Handle sim_env::viewer::Box2DWorldView::drawBox(const Eige
     return addDrawing(rect);
 }
 
+sim_env::WorldViewer::Handle sim_env::viewer::Box2DWorldView::drawLine(const Eigen::Vector3f& start,
+                                                                       const Eigen::Vector3f& end,
+                                                                       const Eigen::Vector3f& color,
+                                                                       float width) {
+    QColor q_color;
+    q_color.setRgbF(color[0], color[1],color[2], 1.0f);
+    QPen pen;
+    pen.setWidthF(width);
+    pen.setColor(q_color);
+    QGraphicsLineItem* line = new QGraphicsLineItem(start[0], start[1], end[0], end[1]);
+    line->setPen(pen);
+    return addDrawing(line);
+}
+
 void sim_env::viewer::Box2DWorldView::removeDrawing(const WorldViewer::Handle& handle)
 {
     auto iter = _drawings.find(handle.getID());
@@ -1148,6 +1162,12 @@ sim_env::WorldViewer::Handle sim_env::Box2DWorldViewer::drawFrame(const Eigen::A
 sim_env::WorldViewer::Handle sim_env::Box2DWorldViewer::drawBox(const Eigen::Vector3f &pos, const Eigen::Vector3f &extent, bool solid,
                                                                 float edge_width) {
     return _world_view->drawBox(pos, extent, solid, edge_width);
+}
+
+sim_env::WorldViewer::Handle sim_env::Box2DWorldViewer::drawLine(const Eigen::Vector3f& start, const Eigen::Vector3f& end,
+                                                                 const Eigen::Vector3f& color,
+                                                                 float width) {
+    return _world_view->drawLine(start, end, color, width);
 }
 
 void sim_env::Box2DWorldViewer::removeDrawing(const sim_env::WorldViewer::Handle &handle)

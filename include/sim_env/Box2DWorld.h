@@ -681,6 +681,7 @@ namespace sim_env{
         std::map<std::string, Box2DRobotPtr> _robots;
         std::stack<WorldState> _state_stack;
         Eigen::Vector4f _world_bounds;
+        WorldViewerPtr _world_viewer;
 
         void eraseWorld();
         void createWorld(const Box2DEnvironmentDescription& env_desc);

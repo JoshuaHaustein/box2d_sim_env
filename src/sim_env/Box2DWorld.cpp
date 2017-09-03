@@ -2258,8 +2258,10 @@ bool Box2DWorld::isPhysicallyFeasible() {
 }
 
 WorldViewerPtr Box2DWorld::getViewer() {
-    // TODO
-    return nullptr;
+    if (!_world_viewer) {
+        _world_viewer = std::make_shared<sim_env::Box2DWorldViewer>(shared_from_this());
+    }
+    return _world_viewer;
 }
 
 LoggerPtr Box2DWorld::getLogger() {
