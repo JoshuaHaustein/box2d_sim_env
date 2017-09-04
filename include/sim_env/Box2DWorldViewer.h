@@ -192,7 +192,7 @@ namespace sim_env {
             friend class Box2DRobotView;
             friend class Box2DObjectView;
         public:
-            Box2DWorldView(int width, int height, QWidget *parent = 0);
+            Box2DWorldView(float pw, float ph, int width=800, int height=900, QWidget *parent = 0);
             ~Box2DWorldView();
             void setBox2DWorld(Box2DWorldPtr world);
             /**
@@ -201,11 +201,21 @@ namespace sim_env {
              */
             void repopulate();
             WorldViewer::Handle drawFrame(const Eigen::Affine3f &frame, float length=1.0f, float width=0.01f);
-            WorldViewer::Handle drawBox(const Eigen::Vector3f& pos, const Eigen::Vector3f& extent, bool solid, float edge_width);
-            WorldViewer::Handle drawLine(const Eigen::Vector3f& start, const Eigen::Vector3f& end,
-                                         const Eigen::Vector3f& color=Eigen::Vector3f(),
+            WorldViewer::Handle drawBox(const Eigen::Vector3f& pos,
+                                        const Eigen::Vector3f& extent,
+                                        const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
+                                        bool solid=true,
+                                        float edge_width=0.1f);
+            WorldViewer::Handle drawLine(const Eigen::Vector3f& start,
+                                         const Eigen::Vector3f& end,
+                                         const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
                                          float width=0.1f);
+            WorldViewer::Handle drawCircle(const Eigen::Vector3f& center,
+                                           float radius,
+                                           const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
+                                           float width=0.1f);
             void removeDrawing(const WorldViewer::Handle& handle);
+            void removeAllDrawings();
             virtual QSize sizeHint() const override;
 
         public slots:
@@ -224,6 +234,8 @@ namespace sim_env {
             QTimer* _refresh_timer;
             int _width;
             int _height;
+            float _rel_width;
+            float _rel_height;
             Box2DWorldWeakPtr _world;
             sim_env::ObjectWeakPtr _currently_selected_object;
             std::vector<Box2DObjectView *> _object_views;
@@ -271,13 +283,24 @@ namespace sim_env {
          * @param argv - pointer to array of c-style strings. These parameters are forwarded to QApplication.
          */
         void show(int argc = 0, const char* const* argv = nullptr);
-        Handle drawFrame(const Eigen::Affine3f &transform, float length=1.0f, float width=0.01f) override;
-        Handle drawBox(const Eigen::Vector3f& pos, const Eigen::Vector3f& extent,
-                     bool solid=false, float edge_width=0.1f) override;
-        Handle drawLine(const Eigen::Vector3f& start, const Eigen::Vector3f& end,
-                        const Eigen::Vector3f& color=Eigen::Vector3f(),
+        Handle drawFrame(const Eigen::Affine3f &transform,
+                         float length=1.0f,
+                         float width=0.01f) override;
+        Handle drawBox(const Eigen::Vector3f& pos,
+                       const Eigen::Vector3f& extent,
+                       const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
+                       bool solid=false,
+                       float edge_width=0.1f) override;
+        Handle drawLine(const Eigen::Vector3f& start,
+                        const Eigen::Vector3f& end,
+                        const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
                         float width=0.1f) override;
+        Handle drawSphere(const Eigen::Vector3f& center,
+                          float radius,
+                          const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
+                          float width=0.1f) override;
         void removeDrawing(const Handle& handle) override;
+        void removeAllDrawings() override;
         void addCustomWidget(QWidget* widget, const std::string& name);
 
     protected:
