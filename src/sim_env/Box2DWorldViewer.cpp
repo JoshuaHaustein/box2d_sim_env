@@ -520,8 +520,8 @@ void sim_env::viewer::Box2DObjectStateView::setSliderValue(QSlider* slider,
 void sim_env::viewer::Box2DObjectStateView::showValues(bool update_input_fields) {
     if (_current_object.expired()) {
         auto logger = DefaultLogger::getInstance();
-        logger->logDebug("[sim_env::viewer::Box2DObjectStateView::showValues] Could not synchronize view "
-                                "as there is no object information available.");
+//        logger->logDebug("[sim_env::viewer::Box2DObjectStateView::showValues] Could not synchronize view "
+//                                "as there is no object information available.");
         return;
     }
     ObjectPtr object = _current_object.lock();
@@ -566,16 +566,16 @@ void sim_env::viewer::Box2DObjectStateView::showValues(bool update_input_fields)
             vel_edit->setText(value);
         }
     }
-    std::vector<sim_env::Contact> contacts;
-    if (object->checkCollision(contacts)) {
-        _collision_display->setStyleSheet("QLabel {background-color: red};");
-        QString text("Found %L1 contacts");
-        text = text.arg(contacts.size());
-        _collision_display->setText(text);
-    } else {
-        _collision_display->setStyleSheet("QLabel {background-color: green};");
-        _collision_display->setText("No collision");
-    }
+//    std::vector<sim_env::Contact> contacts;
+//    if (object->checkCollision(contacts)) {
+//        _collision_display->setStyleSheet("QLabel {background-color: red};");
+//        QString text("Found %L1 contacts");
+//        text = text.arg(contacts.size());
+//        _collision_display->setText(text);
+//    } else {
+//        _collision_display->setStyleSheet("QLabel {background-color: green};");
+//        _collision_display->setText("No collision");
+//    }
 }
 
 
@@ -993,7 +993,7 @@ sim_env::WorldViewer::Handle sim_env::viewer::Box2DWorldView::drawLine(const Eig
     QPen pen;
     pen.setWidthF(width);
     pen.setColor(q_color);
-    Eigen::Vector3f dummy_end;
+    Eigen::Vector3f dummy_end(end);
     if ((start - end).norm() == 0.0f) {
        dummy_end = end + Eigen::Vector3f(0.001f, 0.001f, 0.001f);
     }
@@ -1011,17 +1011,17 @@ sim_env::WorldViewer::Handle sim_env::viewer::Box2DWorldView::drawCircle(const E
     QPen pen;
     pen.setWidthF(width);
     pen.setColor(q_color);
-    auto* circle = new QGraphicsEllipseItem(center[0], center[1], radius, radius);
+    auto* circle = new QGraphicsEllipseItem(center[0] - radius, center[1] - radius, 2.0 * radius, 2.0 * radius);
     circle->setPen(pen);
     return addDrawing(circle);
 }
 
 void sim_env::viewer::Box2DWorldView::removeDrawing(const WorldViewer::Handle& handle)
 {
+    std::lock_guard<std::recursive_mutex> lock(_mutex_to_remove);
     auto iter = _drawings.find(handle.getID());
     if (iter != _drawings.end()) {
-        _scene->removeItem(iter->second);
-        delete iter->second;
+        _items_to_remove.push(iter->second);
         _drawings.erase(iter);
     } else {
         sim_env::LoggerPtr logger = getLogger();
@@ -1031,9 +1031,9 @@ void sim_env::viewer::Box2DWorldView::removeDrawing(const WorldViewer::Handle& h
 }
 
 void sim_env::viewer::Box2DWorldView::removeAllDrawings() {
+    std::lock_guard<std::recursive_mutex> lock(_mutex_to_remove);
     for (auto& entry : _drawings) {
-        _scene->removeItem(entry.second);
-        delete entry.second;
+        _items_to_remove.push(entry.second);
     }
     _drawings.clear();
 }
@@ -1057,6 +1057,24 @@ void sim_env::viewer::Box2DWorldView::wheelEvent(QWheelEvent *event) {
 void sim_env::viewer::Box2DWorldView::refreshView() {
 //    auto logger = DefaultLogger::getInstance();
 //    logger->logDebug("REFRESHING WORLD VIEW");
+    // first add new items to the scene if we have any
+    {
+        std::lock_guard<std::recursive_mutex> add_lock(_mutex_to_add);
+        while (not _items_to_add.empty()) {
+            _scene->addItem(_items_to_add.front());
+            _items_to_add.pop();
+        }
+    }
+    // next remove items from the scene if there were requests
+    {
+        std::lock_guard<std::recursive_mutex> rm_lock(_mutex_to_remove);
+        while (not _items_to_remove.empty()) {
+            QGraphicsItem* item = _items_to_remove.front();
+            _scene->removeItem(item);
+            delete item;
+            _items_to_remove.pop();
+        }
+    }
     _scene->update();
     update();
     emit refreshTick();
@@ -1079,7 +1097,10 @@ void sim_env::viewer::Box2DWorldView::scaleView(double scale_factor) {
 
 sim_env::WorldViewer::Handle sim_env::viewer::Box2DWorldView::addDrawing(QGraphicsItem* item) {
     sim_env::WorldViewer::Handle handle;
-    _scene->addItem(item);
+    std::lock_guard<std::recursive_mutex> lock(_mutex_to_add);
+    // force drawings to be in the back
+    item->setZValue(-1.0);
+    _items_to_add.push(item);
     _drawings[handle.getID()] = item;
     return handle;
 }
@@ -1208,7 +1229,8 @@ sim_env::WorldViewer::Handle sim_env::Box2DWorldViewer::drawBox(const Eigen::Vec
     return _world_view->drawBox(pos, extent, color, solid, edge_width);
 }
 
-sim_env::WorldViewer::Handle sim_env::Box2DWorldViewer::drawLine(const Eigen::Vector3f& start, const Eigen::Vector3f& end,
+sim_env::WorldViewer::Handle sim_env::Box2DWorldViewer::drawLine(const Eigen::Vector3f& start,
+                                                                 const Eigen::Vector3f& end,
                                                                  const Eigen::Vector4f& color,
                                                                  float width) {
     return _world_view->drawLine(start, end, color, width);

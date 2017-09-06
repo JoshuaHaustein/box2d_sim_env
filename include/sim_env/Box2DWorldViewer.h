@@ -22,6 +22,7 @@
 #include <QtGui/QTabWidget>
 // stl includes
 #include <thread>
+#include <queue>
 
 namespace sim_env {
     namespace viewer {
@@ -241,6 +242,11 @@ namespace sim_env {
             std::vector<Box2DObjectView *> _object_views;
             std::vector<Box2DRobotView *> _robot_views;
             std::map<unsigned int, QGraphicsItem*> _drawings;
+            // The following members are required to ensure we only add/remove QGraphicsItem in the main thread.
+            std::recursive_mutex _mutex_to_add;
+            std::queue<QGraphicsItem*> _items_to_add;
+            std::recursive_mutex _mutex_to_remove;
+            std::queue<QGraphicsItem*> _items_to_remove;
         };
 
         class Box2DSimulationController : public QObject {

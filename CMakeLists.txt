@@ -50,7 +50,7 @@ set(CMAKE_CXX_STANDARD 11)
 add_definitions(-std=c++11)
 add_definitions(-Wno-deprecated-register)
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall")
 #set(CMAKE_VERBOSE_MAKEFILE on)
 #add_definitions(-fext-numeric-literals)
 
@@ -59,6 +59,7 @@ add_definitions(${QT_DEFINITIONS})
 
 set(SOURCE_FILES
         src/sim_env/Box2DWorld.cpp
+        src/sim_env/Box2DIOUtils.cpp
         src/sim_env/Box2DWorldViewer.cpp
         src/sim_env/Box2DController.cpp)
 

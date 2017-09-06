@@ -885,6 +885,7 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
     _name = obj_desc.name;
     _is_static = obj_desc.is_static;
     _world = Box2DWorldWeakPtr(world);
+    _mass = 0.0f;
     // first create links
     for (auto &link_desc : obj_desc.links) {
         Box2DLinkPtr link(new Box2DLink(link_desc, world, _is_static, _name));
@@ -1676,11 +1677,11 @@ void Box2DRobot::control(float timestep) {
     // Get positions of currently active DoFs
     Eigen::VectorXf positions = getDOFPositions();
     // Get velocities of currently active DoFs
-    Eigen::VectorXf velocitites = getDOFVelocities();
-    assert(velocitites.size() == positions.size());
+    Eigen::VectorXf velocities = getDOFVelocities();
+    assert(velocities.size() == positions.size());
     // Create efforts array
-    Eigen::VectorXf efforts(velocitites.size());
-    bool success = _controller_callback(positions, velocitites, timestep, shared_from_this(), efforts);
+    Eigen::VectorXf efforts(velocities.size());
+    bool success = _controller_callback(positions, velocities, timestep, shared_from_this(), efforts);
     if (success) { // we have a control to apply
         assert(efforts.size() == positions.size());
         commandEfforts(efforts);

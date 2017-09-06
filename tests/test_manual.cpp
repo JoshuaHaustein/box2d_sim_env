@@ -43,7 +43,6 @@ int main(int argc, char **argv) {
     Eigen::VectorXf new_vel = robot->getDOFVelocities();
     std::stringstream ss;
     ss << new_vel.transpose();
-    world->getLogger()->logWarn(ss.str(), "blu");
     sim_env::Box2DWorldViewerPtr world_viewer = std::make_shared<sim_env::Box2DWorldViewer>(world);
     world_viewer->show(argc, argv);
     auto robot_transform = robot->getTransform();
