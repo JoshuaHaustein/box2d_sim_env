@@ -331,6 +331,7 @@ namespace sim_env{
         Eigen::ArrayX2f getDOFAccelerationLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
         void setDOFVelocities(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
+        void setToRest();
         bool atRest(float threshold=0.0001f) const override;
 
         bool isStatic() const override;
@@ -435,6 +436,7 @@ namespace sim_env{
         void setDOFPositions(const Eigen::VectorXf &values, const Eigen::VectorXi &indices=Eigen::VectorXi()) override;
         Eigen::VectorXf getDOFVelocities(const Eigen::VectorXi &indices=Eigen::VectorXi()) const override;
         Eigen::ArrayX2f getDOFVelocityLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        void setToRest();
         void setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices=Eigen::VectorXi()) override;
         Eigen::ArrayX2f getDOFAccelerationLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
         bool isStatic() const override;
@@ -556,9 +558,10 @@ namespace sim_env{
         void EndContact(b2Contact* contact) override;
         void PreSolve(b2Contact* contact, const b2Manifold* oldManifold) override;
         void PostSolve(b2Contact* contact, const b2ContactImpulse* impulse) override;
+        void invalidateCache();
     private:
         Box2DWorldWeakPtr _weak_world;
-        bool _record_contacts;
+        bool _cache_invalid;
         float _scale;
         typedef std::unordered_map<b2Body*, Contact> ContactMap;
         std::unordered_map<b2Body*, ContactMap> _contact_maps;
@@ -569,6 +572,7 @@ namespace sim_env{
         void updateContacts();
         // TODO maybe we can make some of these inline?
         void addContact(b2Body* body_a, b2Body* body_b, b2Contact* contact);
+        void removeContact(b2Body* body_a, b2Body* body_b);
         bool areInContact(b2Body* body_a, b2Body* body_b) const;
         bool hasContacts(b2Body* body) const;
         Box2DWorldPtr getWorld();
@@ -615,7 +619,7 @@ namespace sim_env{
         void getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_robots) const override;
 
         void stepPhysics(int steps) override;
-        void stepPhysics(int steps, bool execute_controller);
+        void stepPhysics(int steps, bool execute_controller, bool allow_sleeping);
         bool supportsPhysics() const override;
         void setPhysicsTimeStep(float physics_step) override;
         void setVelocitySteps(int velocity_steps);
@@ -662,6 +666,8 @@ namespace sim_env{
         float getInverseScale() const;
         float getGravity() const;
         Eigen::Vector4f getWorldBounds() const;
+        void invalidateCollisionCache();
+        void setToRest();
 
     protected:
         std::shared_ptr<b2World> getRawBox2DWorld();

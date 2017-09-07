@@ -268,6 +268,7 @@ void Box2DLink::setPose(const Eigen::Vector3f& pose, bool update_children, bool 
             ++child_id;
         }
     }
+    world->invalidateCollisionCache();
 }
 
 void Box2DLink::setVelocityVector(const Eigen::Vector3f& velocity) {
@@ -1256,6 +1257,12 @@ void Box2DObject::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::V
     updateBodyVelocities(all_velocities);
 }
 
+void Box2DObject::setToRest() {
+    Eigen::VectorXf vel(_num_dofs);
+    vel.setZero();
+    setDOFVelocities(vel, _all_dof_indices);
+}
+
 bool Box2DObject::atRest(float threshold) const {
     WorldPtr world = getWorld();
     Box2DWorldLock lock(world->getMutex());
@@ -1572,6 +1579,10 @@ Eigen::ArrayX2f Box2DRobot::getDOFAccelerationLimits(const Eigen::VectorXi &indi
     return _robot_object->getDOFAccelerationLimits(indices);
 }
 
+void Box2DRobot::setToRest() {
+    _robot_object->setToRest();
+}
+
 void Box2DRobot::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices) {
     _robot_object->setDOFVelocities(values, indices);
 }
@@ -1822,6 +1833,7 @@ Box2DObjectPtr Box2DRobot::getBox2DObject() {
 Box2DCollisionChecker::Box2DCollisionChecker(Box2DWorldPtr world) {
     _weak_world = world;
     _scale = world->getInverseScale();
+    _cache_invalid = true;
 }
 
 Box2DCollisionChecker::~Box2DCollisionChecker() {
@@ -1865,9 +1877,9 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable, std::v
         LinkPtr link_a = getLink(body, collidable);
         ObjectPtr object_a = link_a->getObject();
         auto maps_iter = _contact_maps.find(body);
-        if (maps_iter != _contact_maps.end()) {
-            is_in_collision = true;
+        if (maps_iter != _contact_maps.end() and not maps_iter->second.empty()) {
             ContactMap& contact_map = maps_iter->second;
+            is_in_collision = true;
             for (auto contact_map_iter : contact_map) {
                 b2Body* other_body = contact_map_iter.first;
                 Contact contact = contact_map_iter.second;
@@ -1902,7 +1914,7 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a, cons
         // now run over each body pair and check whether it is colliding
         for (b2Body* body_a : bodies_a) {
             auto iter_a = _contact_maps.find(body_a);
-            if (iter_a != _contact_maps.end()) {
+            if (iter_a != _contact_maps.end() and not iter_a->second.empty()) {
                 // body_a has some contacts
                 ContactMap& body_a_contacts = iter_a->second;
                 // let's check whether any of b's bodies is in contact with this body
@@ -1932,7 +1944,7 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a,
     std::vector<b2Body*> bodies_a;
     collidable_a->getBodies(bodies_a);
     // now we need to run over each collidable in the list and check for collisions
-    for (Box2DCollidablePtr collidable_b : collidables) {
+    for (const Box2DCollidablePtr &collidable_b : collidables) {
         // now check if the specified collidables collide
         std::vector<b2Body*> bodies_b;
         collidable_b->getBodies(bodies_b);
@@ -1941,7 +1953,7 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a,
             LinkPtr link_a = collidable_a->getLink(body_a);
             ObjectPtr object_a = link_a->getObject();
             auto iter_a = _contact_maps.find(body_a);
-            if (iter_a != _contact_maps.end()) {
+            if (iter_a != _contact_maps.end() and not iter_a->second.empty()) {
                 // body_a has some contacts
                 ContactMap& body_a_contacts = iter_a->second;
                 // let's check whether any of b's bodies is in contact with this body
@@ -1966,21 +1978,50 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a,
 }
 
 void Box2DCollisionChecker::BeginContact(b2Contact *contact) {
+    auto world = _weak_world.lock();
+    std::stringstream ss;
+    b2Body* body_a = contact->GetFixtureA()->GetBody();
+    b2Body* body_b = contact->GetFixtureB()->GetBody();
+    ss << "involved bodies: " << body_a << " and " << body_b;
+    world->getLogger()->logWarn("BeginContact: " + ss.str());
+    addContact(body_a, body_b, contact);
+    addContact(body_b, body_a, contact);
 }
 
 void Box2DCollisionChecker::EndContact(b2Contact *contact) {
+    auto world = _weak_world.lock();
+    std::stringstream ss;
+    b2Body* body_a = contact->GetFixtureA()->GetBody();
+    b2Body* body_b = contact->GetFixtureB()->GetBody();
+    ss << "involved bodies: " << body_a << " and " << body_b;
+    world->getLogger()->logWarn("EndContact " + ss.str());
+    removeContact(body_a, body_b);
+    removeContact(body_b, body_a);
 }
 
 void Box2DCollisionChecker::PreSolve(b2Contact *contact, const b2Manifold *oldManifold) {
-    if (_record_contacts) {
-        b2Body* body_a = contact->GetFixtureA()->GetBody();
-        b2Body* body_b = contact->GetFixtureB()->GetBody();
-        addContact(body_a, body_b, contact);
-        addContact(body_b, body_a, contact);
-    }
+    auto world = _weak_world.lock();
+    std::stringstream ss;
+    b2Body* body_a = contact->GetFixtureA()->GetBody();
+    b2Body* body_b = contact->GetFixtureB()->GetBody();
+    ss << "involved bodies: " << body_a << " and " << body_b;
+    world->getLogger()->logWarn("PreSolve " + ss.str());
 }
 
 void Box2DCollisionChecker::PostSolve(b2Contact *contact, const b2ContactImpulse *impulse) {
+    auto world = _weak_world.lock();
+    std::stringstream ss;
+    b2Body* body_a = contact->GetFixtureA()->GetBody();
+    b2Body* body_b = contact->GetFixtureB()->GetBody();
+    ss << "involved bodies: " << body_a << " and " << body_b;
+    world->getLogger()->logWarn("PostSolve " + ss.str());
+}
+
+void Box2DCollisionChecker::removeContact(b2Body* body_a, b2Body* body_b) {
+    auto iter = _contact_maps.find(body_a);
+    if (iter != _contact_maps.end()) {
+        iter->second.erase(body_b);
+    }
 }
 
 void Box2DCollisionChecker::addContact(b2Body* body_a, b2Body* body_b, b2Contact* contact) {
@@ -2021,24 +2062,31 @@ bool Box2DCollisionChecker::areInContact(b2Body *body_a, b2Body *body_b) const {
 }
 
 void Box2DCollisionChecker::updateContacts() {
-    _contact_maps.clear();
-    _body_to_link_map.clear();
-    _record_contacts = true;
+    static const std::string log_prefix("[sim_env::Box2DCollisionChecker::updateContacts]");
+    if (not _cache_invalid) {
+        return;
+    }
     Box2DWorldPtr world = _weak_world.lock();
     if (!world) {
-        throw std::logic_error("[sim_env::Box2DCollisionChecker::updateContacts]"
+        throw std::logic_error(log_prefix +
                                "Could not acquire access to Box2DWorld. This object should not exist anymore!");
     }
+    world->getLogger()->logDebug("Collision cache invalid! Forward propagating world for collision checks",
+                                 log_prefix);
     Box2DWorldLock lock(world->getMutex());
     world->saveState();
-    world->stepPhysics(1, false);
+    world->setToRest();
+    world->stepPhysics(2, false, false); // TODO for some reason we need to have 2 time steps to detect collisions efficiently
     world->restoreState();
-    _record_contacts = false;
+    _cache_invalid = false;
 }
 
 bool Box2DCollisionChecker::hasContacts(b2Body *body) const {
     auto iter = _contact_maps.find(body);
-    return iter != _contact_maps.end();
+    if (iter == _contact_maps.end()) {
+        return false;
+    }
+    return not iter->second.empty();
 }
 
 LinkPtr Box2DCollisionChecker::getLink(b2Body *body, Box2DCollidablePtr collidable) {
@@ -2082,6 +2130,10 @@ Box2DWorldPtr Box2DCollisionChecker::getWorld() {
         throw std::logic_error("[sim_env::Box2DCollisionChecker::checkCollision] Could not access Box2DWorld");
     }
     return world;
+}
+
+void Box2DCollisionChecker::invalidateCache() {
+    _cache_invalid = true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2206,10 +2258,10 @@ void Box2DWorld::getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_r
 }
 
 void Box2DWorld::stepPhysics(int steps) {
-    stepPhysics(steps, true);
+    stepPhysics(steps, true, true);
 }
 
-void Box2DWorld::stepPhysics(int steps, bool execute_controllers) {
+void Box2DWorld::stepPhysics(int steps, bool execute_controllers, bool allow_sleeping) {
     Box2DWorldLock lock(getMutex());
     for (int i = 0; i < steps; ++i) {
         if (execute_controllers) {
@@ -2219,8 +2271,10 @@ void Box2DWorld::stepPhysics(int steps, bool execute_controllers) {
             }
         }
         // simulate physics
+        _world->SetAllowSleeping(allow_sleeping);
         _world->Step(_time_step, _velocity_steps, _position_steps);
         _world->ClearForces();
+        _world->SetAllowSleeping(true);
     }
 }
 
@@ -2390,6 +2444,21 @@ bool Box2DWorld::restoreState() {
     _state_stack.pop();
     return state_is_set;
 }
+
+void Box2DWorld::invalidateCollisionCache() {
+    if(_collision_checker)  {
+        _collision_checker->invalidateCache();
+    }
+}
+
+void Box2DWorld::setToRest() {
+    for (auto& object : _objects) {
+        object.second->setToRest();
+    }
+    for (auto& robot : _robots) {
+        robot.second->setToRest();
+    }
+}
 ////////////////////////////// PROTECTED FUNCTIONS //////////////////////////////
 std::shared_ptr<b2World> Box2DWorld::getRawBox2DWorld() {
     return _world;
@@ -2399,6 +2468,21 @@ b2Body* Box2DWorld::getGroundBody() {
     return _b2_ground_body;
 }
 
+LinkPtr Box2DWorld::getLink(b2Body *body) {
+    for (auto object_iter : _objects) {
+        LinkPtr link = object_iter.second->getLink(body);
+        if (link) {
+            return link;
+        }
+    }
+    for (auto robot_iter : _robots) {
+        LinkPtr link = robot_iter.second->getLink(body);
+        if (link) {
+            return link;
+        }
+    }
+    return nullptr;
+}
 ////////////////////////////// PRIVATE FUNCTIONS //////////////////////////////
 void Box2DWorld::eraseWorld() {
 //    DefaultLogger::getInstance()->logDebug("Erasing world", "[sim_env::Box2DWorld::eraseWorld]");
@@ -2644,21 +2728,7 @@ Box2DCollidablePtr Box2DWorld::castCollidable(LinkPtr link) const {
     return sim_env::Box2DCollidablePtr();
 }
 
-LinkPtr Box2DWorld::getLink(b2Body *body) {
-    for (auto object_iter : _objects) {
-        LinkPtr link = object_iter.second->getLink(body);
-        if (link) {
-            return link;
-        }
-    }
-    for (auto robot_iter : _robots) {
-        LinkPtr link = robot_iter.second->getLink(body);
-        if (link) {
-            return link;
-        }
-    }
-    return nullptr;
-}
+
 
 
 

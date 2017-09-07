@@ -566,16 +566,16 @@ void sim_env::viewer::Box2DObjectStateView::showValues(bool update_input_fields)
             vel_edit->setText(value);
         }
     }
-//    std::vector<sim_env::Contact> contacts;
-//    if (object->checkCollision(contacts)) {
-//        _collision_display->setStyleSheet("QLabel {background-color: red};");
-//        QString text("Found %L1 contacts");
-//        text = text.arg(contacts.size());
-//        _collision_display->setText(text);
-//    } else {
-//        _collision_display->setStyleSheet("QLabel {background-color: green};");
-//        _collision_display->setText("No collision");
-//    }
+    std::vector<sim_env::Contact> contacts;
+    if (object->checkCollision(contacts)) {
+        _collision_display->setStyleSheet("QLabel {background-color: red};");
+        QString text("Found %L1 contacts");
+        text = text.arg(contacts.size());
+        _collision_display->setText(text);
+    } else {
+        _collision_display->setStyleSheet("QLabel {background-color: green};");
+        _collision_display->setText("No collision");
+    }
 }
 
 
