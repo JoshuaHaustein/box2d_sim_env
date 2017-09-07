@@ -1978,43 +1978,23 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a,
 }
 
 void Box2DCollisionChecker::BeginContact(b2Contact *contact) {
-    auto world = _weak_world.lock();
-    std::stringstream ss;
     b2Body* body_a = contact->GetFixtureA()->GetBody();
     b2Body* body_b = contact->GetFixtureB()->GetBody();
-    ss << "involved bodies: " << body_a << " and " << body_b;
-    world->getLogger()->logWarn("BeginContact: " + ss.str());
     addContact(body_a, body_b, contact);
     addContact(body_b, body_a, contact);
 }
 
 void Box2DCollisionChecker::EndContact(b2Contact *contact) {
-    auto world = _weak_world.lock();
-    std::stringstream ss;
     b2Body* body_a = contact->GetFixtureA()->GetBody();
     b2Body* body_b = contact->GetFixtureB()->GetBody();
-    ss << "involved bodies: " << body_a << " and " << body_b;
-    world->getLogger()->logWarn("EndContact " + ss.str());
     removeContact(body_a, body_b);
     removeContact(body_b, body_a);
 }
 
 void Box2DCollisionChecker::PreSolve(b2Contact *contact, const b2Manifold *oldManifold) {
-    auto world = _weak_world.lock();
-    std::stringstream ss;
-    b2Body* body_a = contact->GetFixtureA()->GetBody();
-    b2Body* body_b = contact->GetFixtureB()->GetBody();
-    ss << "involved bodies: " << body_a << " and " << body_b;
-    world->getLogger()->logWarn("PreSolve " + ss.str());
 }
 
 void Box2DCollisionChecker::PostSolve(b2Contact *contact, const b2ContactImpulse *impulse) {
-    auto world = _weak_world.lock();
-    std::stringstream ss;
-    b2Body* body_a = contact->GetFixtureA()->GetBody();
-    b2Body* body_b = contact->GetFixtureB()->GetBody();
-    ss << "involved bodies: " << body_a << " and " << body_b;
-    world->getLogger()->logWarn("PostSolve " + ss.str());
 }
 
 void Box2DCollisionChecker::removeContact(b2Body* body_a, b2Body* body_b) {
