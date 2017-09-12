@@ -12,6 +12,7 @@
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point_xy.hpp>
 #include <boost/geometry/geometries/polygon.hpp>
+#include <boost/geometry/geometries/box.hpp>
 #include <boost/format.hpp>
 
 #define FLOAT_NOISE_TOLERANCE 0.0001f
@@ -42,6 +43,12 @@ Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world,
     // run over polygons and create Box2D shape definitions + compute area
     float area = 0.0f;
     std::vector<b2PolygonShape> shape_defs;
+    _local_aabb.min_corner[0] = std::numeric_limits<float>::max();
+    _local_aabb.min_corner[1] = std::numeric_limits<float>::max();
+    _local_aabb.max_corner[0] = std::numeric_limits<float>::lowest();
+    _local_aabb.max_corner[1] = std::numeric_limits<float>::lowest();
+    _local_aabb.min_corner[2] = 0.0f;
+    _local_aabb.max_corner[2] = 0.0f;
     for (auto &polygon : link_desc.polygons) {
         b2PolygonShape b2_shape; // shape type for box2d
         std::vector<b2Vec2> b2_polygon; // temporal buffer for vertices
@@ -50,11 +57,15 @@ Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world,
         assert(polygon.size() % 2 == 0);
         // run over this polygon
         for (unsigned int i = 0; i < polygon.size() / 2; ++i) {
+            _local_aabb.min_corner[0] = std::min(polygon.at(2 * i), _local_aabb.min_corner[0]);
+            _local_aabb.min_corner[1] = std::min(polygon.at(2 * i + 1), _local_aabb.min_corner[1]);
+            _local_aabb.max_corner[0] = std::max(polygon.at(2 * i), _local_aabb.max_corner[0]);
+            _local_aabb.max_corner[1] = std::max(polygon.at(2 * i + 1), _local_aabb.max_corner[1]);
             // scale it
             float x = world->getScale() * polygon.at(2 * i);
             float y = world->getScale() * polygon.at(2 * i + 1);
             // create put vertex in buffer and in boost polygon
-            b2_polygon.push_back(b2Vec2(x, y));
+            b2_polygon.emplace_back(b2Vec2(x, y));
             bg::append(boost_polygon, bg::model::d2::point_xy<float>(x, y));
         }
         // compute the area
@@ -85,6 +96,7 @@ Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world,
     friction_joint_def.collideConnected = false;
     friction_joint_def.maxForce = link_desc.trans_friction * _body->GetMass() * gravity;
     friction_joint_def.maxTorque = link_desc.rot_friction * _body->GetMass() * gravity;
+    _ground_friction = link_desc.trans_friction;
     _friction_joint = box2d_world->CreateJoint(&friction_joint_def);
 }
 
@@ -166,6 +178,14 @@ Box2DWorldPtr Box2DLink::getBox2DWorld() const {
         throw std::logic_error("[Box2DLink::getBox2DWorld] Can not access Box2DWorld. A link should not exist without a world.");
     }
     return _world.lock();
+}
+
+BoundingBox Box2DLink::getLocalBoundingBox() const {
+    return _local_aabb;
+}
+
+float Box2DLink::getGroundFriction() const {
+    return _ground_friction;
 }
 
 WorldPtr Box2DLink::getWorld() const {
@@ -892,6 +912,7 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
         Box2DLinkPtr link(new Box2DLink(link_desc, world, _is_static, _name));
         _links[link->getName()] = link;
         _mass += link->getMass();
+        _local_bounding_box.merge(link->getLocalBoundingBox());
     }
     _base_link = _links[obj_desc.base_link];
     _base_link->setOriginToCenterOfMass();
@@ -1411,6 +1432,14 @@ float Box2DObject::getInertia() const {
 
 float Box2DObject::getMass() const {
     return _mass;
+}
+
+BoundingBox Box2DObject::getLocalAABB() const {
+    return _local_bounding_box;
+}
+
+float Box2DObject::getGroundFriction() const {
+    return _base_link->getGroundFriction();
 }
 
 void Box2DObject::getBox2DLinks(std::vector<Box2DLinkPtr> &links) {
@@ -2133,6 +2162,12 @@ void Box2DWorld::loadWorld(const std::string &path) {
     Box2DWorldLock lock(getMutex());
     Box2DEnvironmentDescription env_desc = Box2DEnvironmentDescription();
     parseYAML(path, env_desc);
+    eraseWorld();
+    createWorld(env_desc);
+}
+
+void Box2DWorld::loadWorld(const Box2DEnvironmentDescription& env_desc) {
+    Box2DWorldLock lock(getMutex());
     eraseWorld();
     createWorld(env_desc);
 }

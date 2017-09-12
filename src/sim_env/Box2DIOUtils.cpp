@@ -61,7 +61,7 @@ void sim_env::parseRobotDescriptions(const YAML::Node& node, const boost::filesy
 }
 
 void sim_env::parseYAML(const std::string& filename, Box2DEnvironmentDescription& ed) {
-    // First get the root path of our environment file, we might it to resolve relative paths.
+    // First get the root path of our environment file, we might need it to resolve relative paths.
     sim_env::LoggerPtr logger = sim_env::DefaultLogger::getInstance();
     boost::filesystem::path root_path(filename);
     if (not boost::filesystem::exists(root_path)) {

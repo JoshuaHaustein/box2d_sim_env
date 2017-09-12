@@ -939,10 +939,10 @@ void sim_env::viewer::Box2DWorldView::repopulate() {
     }
     // add a rectangle showing the world bounds
     Eigen::VectorXf world_bounds = world->getWorldBounds();
-    QRect qrect(world_bounds[0],
-                world_bounds[1],
-                world_bounds[2] - world_bounds[0],
-                world_bounds[3] - world_bounds[1]);
+    QRectF qrect(world_bounds[0],
+                 world_bounds[1],
+                 world_bounds[2] - world_bounds[0],
+                 world_bounds[3] - world_bounds[1]);
     _scene->addRect(qrect);
     if (not _refresh_timer) {
         _refresh_timer = new QTimer(this);

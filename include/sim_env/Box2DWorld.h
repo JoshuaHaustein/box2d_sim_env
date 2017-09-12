@@ -138,6 +138,8 @@ namespace sim_env{
         float getMass() const;
         float getInertia() const;
         Box2DWorldPtr getBox2DWorld() const;
+        BoundingBox getLocalBoundingBox() const;
+        float getGroundFriction() const;
 
 //        Box2DObjectPtr getBox2DObject() const;
 
@@ -181,6 +183,8 @@ namespace sim_env{
         std::string _object_name;
         std::vector<Box2DJointWeakPtr> _child_joints;
         Box2DJointWeakPtr _parent_joint;
+        BoundingBox _local_aabb;
+        float _ground_friction;
         bool _destroyed;
 
         /*
@@ -367,6 +371,8 @@ namespace sim_env{
          * @return moment of inertia
          */
         float getInertia() const; //TODO maybe make it part of the sim_env interface (with Eigen::MatrixXf as return type?)
+        BoundingBox getLocalAABB() const;
+        float getGroundFriction() const;
         virtual Box2DLinkPtr getBox2DBaseLink();
         void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
         void setPose(float x, float y, float theta);
@@ -391,6 +397,7 @@ namespace sim_env{
         std::string _name;
         Box2DWorldWeakPtr _world;
         float _mass;
+        BoundingBox _local_bounding_box;
         Eigen::VectorXi _active_dof_indices;
         Eigen::VectorXi _all_dof_indices;
         unsigned int _num_dofs;
@@ -603,6 +610,7 @@ namespace sim_env{
         ~Box2DWorld(); // we can ignore the warning that we are hiding enable_shared_from_this' destructor
 
         void loadWorld(const std::string &path) override;
+        void loadWorld(const Box2DEnvironmentDescription& env_desc);
 
         RobotPtr getRobot(const std::string &name) override;
         RobotConstPtr getRobotConst(const std::string &name) const override;
