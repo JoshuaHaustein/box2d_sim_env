@@ -36,7 +36,7 @@
 int main(int argc, char **argv) {
     sim_env::Box2DWorldPtr world = std::make_shared<sim_env::Box2DWorld>();
     world->getLogger()->setLevel(sim_env::Logger::LogLevel::Debug);
-    world->loadWorld("/home/joshua/projects/planning_catkin/src/box2d_sim_env/test_data/test_env.yaml");
+    world->loadWorld("/home/joshua/projects/planning_catkin/src/planner_tests/data/box2d/worlds/arm_wall_1m.yaml");
     std::vector<sim_env::RobotPtr> robots;
     world->getRobots(robots);
     sim_env::RobotPtr robot = robots[0];

@@ -1089,7 +1089,7 @@ void sim_env::viewer::Box2DWorldView::scaleView(double scale_factor) {
     // this is from a qt example
     qreal factor = transform().scale(scale_factor, scale_factor).mapRect(QRectF(0, 0, 1, 1)).width();
     // TODO this is the width of a unit cube when zoomed. See whether these numbers should be dependent on sth
-    if (factor < 0.7 || factor > 200) {
+    if (factor < 0.7 || factor > 500) {
         return;
     }
     scale(scale_factor, scale_factor);

@@ -1342,7 +1342,19 @@ void Box2DObject::getJoints(std::vector<JointPtr>& joints) {
     }
 }
 
+void Box2DObject::getBox2DJoints(std::vector<Box2DJointPtr>& joints) {
+    for (auto &iter : _joints) {
+        joints.push_back(iter.second);
+    }
+}
+
 void Box2DObject::getJoints(std::vector<JointConstPtr>& joints) const {
+    for (auto &iter : _joints) {
+        joints.push_back(iter.second);
+    }
+}
+
+void Box2DObject::getBox2DJoints(std::vector<Box2DJointConstPtr>& joints) const {
     for (auto &iter : _joints) {
         joints.push_back(iter.second);
     }
@@ -1676,8 +1688,16 @@ void Box2DRobot::getJoints(std::vector<JointPtr>& joints) {
     _robot_object->getJoints(joints);
 }
 
+void Box2DRobot::getBox2DJoints(std::vector<Box2DJointPtr>& joints) {
+    _robot_object->getBox2DJoints(joints);
+}
+
 void Box2DRobot::getJoints(std::vector<JointConstPtr>& joints) const {
     _robot_object->getJoints(joints);
+}
+
+void Box2DRobot::getBox2DJoints(std::vector<Box2DJointConstPtr>& joints) const {
+    _robot_object->getBox2DJoints(joints);
 }
 
 LinkPtr Box2DRobot::getLink(const std::string &link_name) {
@@ -1821,6 +1841,14 @@ float Box2DRobot::getMass() const {
 
 float Box2DRobot::getInertia() const {
     return _robot_object->getInertia();
+}
+
+BoundingBox Box2DRobot::getLocalAABB() const {
+    return _robot_object->getLocalAABB();
+}
+
+float Box2DRobot::getGroundFriction() const {
+    return _robot_object->getGroundFriction();
 }
 
 void Box2DRobot::getBox2DLinks(std::vector<Box2DLinkPtr> &links) {

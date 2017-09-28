@@ -24,10 +24,21 @@ namespace sim_env {
                      float timestep,
                      RobotConstPtr robot,
                      Eigen::VectorXf& output) override;
+        bool controlArm(const Eigen::VectorXf& positions,
+                    const Eigen::VectorXf& velocities,
+                    float timestep,
+                    RobotConstPtr robot,
+                    Eigen::VectorXf& output);
 
     protected:
         Box2DRobotPtr lockRobot();
-        float computeKinematicChainInertia(JointPtr joint);
+        float computeKinematicChainInertia(JointConstPtr joint) const;
+        void computeDynamics(const Eigen::VectorXi& active_dofs,
+                             const Eigen::VectorXf& positions,
+                             const Eigen::VectorXf& velocities,
+                             Box2DRobotConstPtr robot,
+                             Eigen::Matrix2f& inertia_matrix,
+                             Eigen::Matrix2f& coriolis_matrix) const;
         LoggerPtr getLogger() const;
     private:
         Box2DRobotWeakPtr _box2d_robot;

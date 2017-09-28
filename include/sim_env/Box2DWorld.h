@@ -347,7 +347,9 @@ namespace sim_env{
         LinkPtr getBaseLink() override;
 
         void getJoints(std::vector<JointPtr>& joints) override;
+        void getBox2DJoints(std::vector<Box2DJointPtr>& joints);
         void getJoints(std::vector<JointConstPtr>& joints) const override;
+        void getBox2DJoints(std::vector<Box2DJointConstPtr>& joints) const;
         JointPtr getJoint(const std::string &joint_name) override;
         JointPtr getJoint(unsigned int joint_idx) override;
         JointPtr getJointFromDOFIndex(unsigned int dof_idx) override;
@@ -365,14 +367,14 @@ namespace sim_env{
          * (i.e. the sum of the mass of all its bodies)
          * @return mass
          */
-        float getMass() const; //TODO maybe make it part of the sim_env interface
+        float getMass() const override;
         /**
          * Returns the moment of inertia of this object (given the current configuration).
          * @return moment of inertia
          */
-        float getInertia() const; //TODO maybe make it part of the sim_env interface (with Eigen::MatrixXf as return type?)
-        BoundingBox getLocalAABB() const;
-        float getGroundFriction() const;
+        float getInertia() const override;
+        BoundingBox getLocalAABB() const override;
+        float getGroundFriction() const override;
         virtual Box2DLinkPtr getBox2DBaseLink();
         void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
         void setPose(float x, float y, float theta);
@@ -465,7 +467,9 @@ namespace sim_env{
         Box2DLinkPtr getBox2DBaseLink();
         // joints
         void getJoints(std::vector<JointPtr>& joints) override;
+        void getBox2DJoints(std::vector<Box2DJointPtr>& joints);
         void getJoints(std::vector<JointConstPtr>& joints) const override;
+        void getBox2DJoints(std::vector<Box2DJointConstPtr>& joints) const;
         JointPtr getJoint(const std::string &joint_name) override;
         JointConstPtr getConstJoint(const std::string &joint_name) const override;
         JointPtr getJoint(unsigned int joint_idx) override;
@@ -474,8 +478,11 @@ namespace sim_env{
         JointConstPtr getConstJointFromDOFIndex(unsigned int dof_idx) const override;
         // control
         void setController(ControlCallback control_fn) override;
-        float getMass() const;
-        float getInertia() const;
+        float getMass() const override;
+        float getInertia() const override;
+        BoundingBox getLocalAABB() const override;
+        float getGroundFriction() const override;
+
         // state retrieval
         void getState(ObjectState &object_state) const override;
         ObjectState getState() const override;
