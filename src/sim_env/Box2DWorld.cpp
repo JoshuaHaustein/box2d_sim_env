@@ -97,6 +97,7 @@ Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world,
     friction_joint_def.maxForce = link_desc.trans_friction * _body->GetMass() * gravity;
     friction_joint_def.maxTorque = link_desc.rot_friction * _body->GetMass() * gravity;
     _ground_friction = link_desc.trans_friction;
+    _friction_ratio = link_desc.rot_friction / link_desc.trans_friction;
     _friction_joint = box2d_world->CreateJoint(&friction_joint_def);
 }
 
@@ -327,6 +328,27 @@ float Box2DLink::getMass() const {
     return _body->GetMass();
 }
 
+void Box2DLink::setMass(float mass) {
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
+    b2MassData data;
+    _body->GetMassData(&data);
+    float mass_ratio = mass / data.mass;
+    data.mass = mass;
+    data.I = data.I * mass_ratio;
+    _body->SetMassData(&data);
+}
+
+void Box2DLink::setGroundFriction(float coeff) {
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
+    auto friction_joint = dynamic_cast<b2FrictionJoint*>(_friction_joint);
+    float gravity = world->getGravity();
+    friction_joint->SetMaxForce(coeff * _body->GetMass() * gravity);
+    friction_joint->SetMaxTorque(_friction_ratio * coeff * _body->GetMass() * gravity);
+    _ground_friction = coeff;
+}
+
 float Box2DLink::getInertia() const {
     Box2DWorldPtr world = getBox2DWorld();
     Box2DWorldLock lock(world->getMutex());
@@ -476,6 +498,7 @@ void Box2DLink::updateBodyVelocities(const Eigen::VectorXf& all_dof_velocities,
         parent_joints.pop_back();
     }
 }
+
 ///////////////////////////////// PRIVATE //////////////////////////////////////
 //void Box2DLink::propagateVelocityChange(float v_x,
 //                                        float v_y,

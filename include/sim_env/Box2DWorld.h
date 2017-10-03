@@ -132,14 +132,16 @@ namespace sim_env{
         JointConstPtr getConstParentJoint() const override;
 
         void getGeometry(std::vector< std::vector<Eigen::Vector2f> >& geometry) const;
+        float getMass() const override;
+        float getGroundFriction() const override;
+        void setMass(float mass) override;
+        void setGroundFriction(float coeff) override;
         // Box2D specific
         Eigen::Vector2f getCenterOfMass() const;
         void getCenterOfMass(Eigen::Vector2f& com) const;
-        float getMass() const;
         float getInertia() const;
         Box2DWorldPtr getBox2DWorld() const;
         BoundingBox getLocalBoundingBox() const;
-        float getGroundFriction() const;
 
 //        Box2DObjectPtr getBox2DObject() const;
 
@@ -185,6 +187,7 @@ namespace sim_env{
         Box2DJointWeakPtr _parent_joint;
         BoundingBox _local_aabb;
         float _ground_friction;
+        float _friction_ratio;
         bool _destroyed;
 
         /*
@@ -384,7 +387,7 @@ namespace sim_env{
         Box2DObject(const Box2DObjectDescription& obj_desc, Box2DWorldPtr world);
         // function for destruction. called by Box2DWorld when it is destroyed.
         void destroy(const std::shared_ptr<b2World>& b2world);
-        virtual void setName(const std::string &name) override;
+        void setName(const std::string &name) override;
         Box2DJointPtr getBox2DJoint(unsigned int idx);
         // puts all link bodies into the given list (for collision checking)
         void getBodies(std::vector<b2Body *> &bodies) override;
