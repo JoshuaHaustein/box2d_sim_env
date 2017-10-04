@@ -1,8 +1,7 @@
 scale: 10.0
-world_bounds: [-20.0, -20.0, 20.0, 20.0]
 robots:
-  - name: my_robot
-    filename: robots/test_robot.yaml
+  - name: robot
+    filename: robots/rigid_fingers_robot.yaml
 objects:
   - name: obj1
     filename: objects/test_object.yaml
@@ -11,10 +10,10 @@ objects:
     filename: objects/test_object2.yaml
     static: True
 states:
-  - name: my_robot
+  - name: robot
     state:
-      configuration: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-      velocity: [0.0, 0.0, 0.0, 0.0, -5.5, 0.0, 0.0]
+      configuration: [0.0, 0.0, 0.0]
+      velocity: [0.0, 0.0, 0.0]
   - name: obj1
     state:
       configuration: [0.9, 1.0, -1.0]

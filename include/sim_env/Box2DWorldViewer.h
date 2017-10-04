@@ -18,9 +18,11 @@
 #include <QtGui/QPushButton>
 #include <QtGui/QSlider>
 #include <QtGui/QFormLayout>
+#include <QtGui/QLabel>
+#include <QtGui/QTabWidget>
 // stl includes
 #include <thread>
-#include <QtGui/QLabel>
+#include <queue>
 
 namespace sim_env {
     namespace viewer {
@@ -191,15 +193,30 @@ namespace sim_env {
             friend class Box2DRobotView;
             friend class Box2DObjectView;
         public:
-            Box2DWorldView(int width, int height, QWidget *parent = 0);
+            Box2DWorldView(float pw, float ph, int width=800, int height=900, QWidget *parent = 0);
             ~Box2DWorldView();
-            void setBox2DWorld(Box2DWorldConstPtr world);
+            void setBox2DWorld(Box2DWorldPtr world);
             /**
              * Repopulates the visualized scene by recreating all child views based on the currently
              * set Box2D world.
              */
             void repopulate();
-            void drawFrame(const Eigen::Affine3f &frame, float length=1.0f, float width=0.01f);
+            WorldViewer::Handle drawFrame(const Eigen::Affine3f &frame, float length=1.0f, float width=0.01f);
+            WorldViewer::Handle drawBox(const Eigen::Vector3f& pos,
+                                        const Eigen::Vector3f& extent,
+                                        const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
+                                        bool solid=true,
+                                        float edge_width=0.1f);
+            WorldViewer::Handle drawLine(const Eigen::Vector3f& start,
+                                         const Eigen::Vector3f& end,
+                                         const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
+                                         float width=0.1f);
+            WorldViewer::Handle drawCircle(const Eigen::Vector3f& center,
+                                           float radius,
+                                           const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
+                                           float width=0.1f);
+            void removeDrawing(const WorldViewer::Handle& handle);
+            void removeAllDrawings();
             virtual QSize sizeHint() const override;
 
         public slots:
@@ -211,15 +228,25 @@ namespace sim_env {
             void setSelectedObject(sim_env::ObjectWeakPtr object);
             void wheelEvent(QWheelEvent *event) override;
             void scaleView(double scale_factor);
+            WorldViewer::Handle addDrawing(QGraphicsItem* item);
+            LoggerPtr getLogger() const;
             // Variables
             QGraphicsScene *_scene;
             QTimer* _refresh_timer;
             int _width;
             int _height;
-            Box2DWorldConstWeakPtr _world;
+            float _rel_width;
+            float _rel_height;
+            Box2DWorldWeakPtr _world;
             sim_env::ObjectWeakPtr _currently_selected_object;
             std::vector<Box2DObjectView *> _object_views;
             std::vector<Box2DRobotView *> _robot_views;
+            std::map<unsigned int, QGraphicsItem*> _drawings;
+            // The following members are required to ensure we only add/remove QGraphicsItem in the main thread.
+            std::recursive_mutex _mutex_to_add;
+            std::queue<QGraphicsItem*> _items_to_add;
+            std::recursive_mutex _mutex_to_remove;
+            std::queue<QGraphicsItem*> _items_to_remove;
         };
 
         class Box2DSimulationController : public QObject {
@@ -261,8 +288,26 @@ namespace sim_env {
          * @param argc - number of arguments stored in argv
          * @param argv - pointer to array of c-style strings. These parameters are forwarded to QApplication.
          */
-        void show(int argc = 0, char** argv = nullptr);
-        void drawFrame(const Eigen::Affine3f &transform, float length=1.0f, float width=0.01f) override;
+        void show(int argc = 0, const char* const* argv = nullptr);
+        Handle drawFrame(const Eigen::Affine3f &transform,
+                         float length=1.0f,
+                         float width=0.01f) override;
+        Handle drawBox(const Eigen::Vector3f& pos,
+                       const Eigen::Vector3f& extent,
+                       const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
+                       bool solid=false,
+                       float edge_width=0.1f) override;
+        Handle drawLine(const Eigen::Vector3f& start,
+                        const Eigen::Vector3f& end,
+                        const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
+                        float width=0.1f) override;
+        Handle drawSphere(const Eigen::Vector3f& center,
+                          float radius,
+                          const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
+                          float width=0.1f) override;
+        void removeDrawing(const Handle& handle) override;
+        void removeAllDrawings() override;
+        void addCustomWidget(QWidget* widget, const std::string& name);
 
     protected:
         void log(const std::string& msg, const std::string& prefix,
@@ -273,6 +318,7 @@ namespace sim_env {
         Box2DWorldWeakPtr _world;
         std::unique_ptr<QApplication> _app;
         std::unique_ptr<QWidget> _root_widget;
+        QTabWidget* _bottom_tab_widget;
         viewer::Box2DWorldView* _world_view;
         // this is a qt object, so we keep a pointer.
         std::unique_ptr<viewer::Box2DSimulationController> _simulation_controller;
@@ -282,7 +328,7 @@ namespace sim_env {
 
         // private methods
         void createUI();
-        QWidget* createBottomBar();
+        void createBottomBar();
         QWidget* createSideBar();
     };
 }

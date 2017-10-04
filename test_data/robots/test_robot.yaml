@@ -1,8 +1,8 @@
 name: test_robot
 base_actuation:
-  translational_velocity_limits: [-10.0, 10.0]
+  translational_velocity_limits: [-2.0, 2.0]
   translational_acceleration_limits: [-2, 2]
-  rotational_velocity_limits: [-3.14, 3.14]
+  rotational_velocity_limits: [-1.54, 1.54]
   rotational_acceleration_limits: [-1.4, 1.4]
   use_center_of_mass: true
 links:

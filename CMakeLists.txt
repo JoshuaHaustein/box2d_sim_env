@@ -15,8 +15,11 @@ find_package(Qt4 COMPONENTS QtCore QtGui REQUIRED)
 include(${QT_USE_FILE})
 find_package(Eigen 3.3 REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem)
+find_package(Threads REQUIRED)
 #find_package(yaml-cpp REQUIRED)
 
+# TODO the following line shouldn't be here. BUt linking without catkin_make does not work otherwise
+link_directories("/home/joshua/projects/planning_catkin/devel/lib/")
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
@@ -35,7 +38,7 @@ catkin_package(
         INCLUDE_DIRS include
         LIBRARIES box2d_sim_env
         CATKIN_DEPENDS box2d_catkin sim_env
-        DEPENDS Eigen yaml-cpp
+        DEPENDS Eigen yaml-cpp Boost Qt4
 )
 
 ###########
@@ -46,6 +49,9 @@ set(CMAKE_CXX_COMPILER /usr/bin/clang++)
 set(CMAKE_CXX_STANDARD 11)
 add_definitions(-std=c++11)
 add_definitions(-Wno-deprecated-register)
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -Wall")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall")
+#set(CMAKE_VERBOSE_MAKEFILE on)
 #add_definitions(-fext-numeric-literals)
 
 ## Qt specific
@@ -53,6 +59,7 @@ add_definitions(${QT_DEFINITIONS})
 
 set(SOURCE_FILES
         src/sim_env/Box2DWorld.cpp
+        src/sim_env/Box2DIOUtils.cpp
         src/sim_env/Box2DWorldViewer.cpp
         src/sim_env/Box2DController.cpp)
 
@@ -90,9 +97,11 @@ set(SOURCE_FILES
 
 ## Specify libraries to link a library or executable target against
  target_link_libraries(box2d_sim_env
+        sim_env
         ${catkin_LIBRARIES}
         yaml-cpp
         ${QT_LIBRARIES}
+        ${CMAKE_THREAD_LIBS_INIT}
  )
 
 ## Declare a C++ executable
@@ -100,7 +109,7 @@ add_executable(box2d_sim_env_manual_test tests/test_manual.cpp)
 
 target_link_libraries(box2d_sim_env_manual_test
         box2d_sim_env
-        ${sim_env_LIBRARIES}
+        sim_env
         ${catkin_LIBRARIES}
         ${Boost_LIBRARIES}
         yaml-cpp

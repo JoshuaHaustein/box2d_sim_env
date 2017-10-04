@@ -11,6 +11,7 @@
 #include "Box2DIOUtils.h"
 #include <boost/filesystem/path.hpp>
 #include <yaml-cpp/yaml.h>
+#include <unordered_map>
 #include "Box2D/Box2D.h"
 
 namespace sim_env{
@@ -51,6 +52,8 @@ namespace sim_env{
     class Box2DWorldViewer;
     typedef std::shared_ptr<Box2DWorldViewer> Box2DWorldViewerPtr;
     typedef std::shared_ptr<const Box2DWorldViewer> Box2DWorldViewerConstPtr;
+    typedef std::weak_ptr<Box2DWorldViewer> Box2DWorldViewerWeakPtr;
+    typedef std::weak_ptr<const Box2DWorldViewer> Box2DWorldViewerConstWeakPtr;
 
     class Box2DCollisionChecker;
     typedef std::shared_ptr<Box2DCollisionChecker> Box2DCollisionCheckerPtr;
@@ -98,7 +101,7 @@ namespace sim_env{
         Box2DLink(const Box2DLink& link) = delete;
         Box2DLink& operator=(const Box2DLink&) = delete;
         Box2DLink& operator=(Box2DLink&&) = delete;
-        ~Box2DLink();
+        ~Box2DLink() override;
 
         bool checkCollision() override;
         bool checkCollision(std::vector<Contact> &contacts) override;
@@ -123,18 +126,22 @@ namespace sim_env{
         WorldConstPtr getConstWorld() const override;
         ObjectConstPtr getConstObject() const override;
 
-        virtual void getChildJoints(std::vector<JointPtr>& child_joints);
-        virtual void getConstChildJoints(std::vector<JointConstPtr>& child_joints) const;
-        virtual void getParentJoints(std::vector<JointPtr>& parent_joints);
-        virtual void getConstParentJoints(std::vector<JointConstPtr>& parent_joints) const;
+        void getChildJoints(std::vector<JointPtr>& child_joints) override;
+        void getConstChildJoints(std::vector<JointConstPtr>& child_joints) const override;
+        JointPtr getParentJoint() override;
+        JointConstPtr getConstParentJoint() const override;
 
         void getGeometry(std::vector< std::vector<Eigen::Vector2f> >& geometry) const;
+        float getMass() const override;
+        float getGroundFriction() const override;
+        void setMass(float mass) override;
+        void setGroundFriction(float coeff) override;
         // Box2D specific
         Eigen::Vector2f getCenterOfMass() const;
         void getCenterOfMass(Eigen::Vector2f& com) const;
-        float getMass() const;
         float getInertia() const;
         Box2DWorldPtr getBox2DWorld() const;
+        BoundingBox getLocalBoundingBox() const;
 
 //        Box2DObjectPtr getBox2DObject() const;
 
@@ -154,16 +161,16 @@ namespace sim_env{
         // registers a parent joint
         void registerParentJoint(Box2DJointPtr joint);
         // sets the transform of this link. Should not be called externally. Calls setPose(pose, true, false)
-        void setTransform(const Eigen::Affine3f& tf);
+//        void setTransform(const Eigen::Affine3f& tf);
         /*
          * Sets the pose of this link. If update_children is true, all child links are moved together with this link.
          * if joint_override is true, the relative transforms between this link and its children is set
          * to the initial transform defined by the joint connecting both links (i.e. it is set to joint position 0)
          */
         void setPose(const Eigen::Vector3f& pose, bool update_children=true, bool joint_override=false);
-        // sets the velocity (translational x,y and rotational) of this link. Should not be called externally.
-        void setVelocityVector(const Eigen::Vector3f& velocity, bool relative=false);
-        // resets the origin of this link to its center of mass
+        // sets the velocity of the underlying box2d body. velocities need to be scaled to box2d scale
+        void setVelocityVector(const Eigen::Vector3f& velocity);
+        // resets the origin of this link to its center of mass (ONLY FOR BASE LINKS)
         void setOriginToCenterOfMass();
         // Adds the body of this link to the given vector - used for collision checks
         void getBodies(std::vector<b2Body *> &bodies) override;
@@ -177,16 +184,23 @@ namespace sim_env{
         std::string _name;
         std::string _object_name;
         std::vector<Box2DJointWeakPtr> _child_joints;
-        std::vector<Box2DJointWeakPtr> _parent_joints;
+        Box2DJointWeakPtr _parent_joint;
+        BoundingBox _local_aabb;
+        float _ground_friction;
+        float _friction_ratio;
         bool _destroyed;
 
         /*
-         * Recursively propagates a velocity change through a kinematic chain.
-         * @param lin_vel linear velocity change in global frame (scaled to box2d world)
-         * @param dw angular velocity change
-         * @param parent pointer to the parent body (used for coordinate transformations)
+         * Recursively propagates a new absolute velocity of a parent frame through a kinematic chain.
+         * @param lin_vel new linear velocity of the parent in global frame (scaled to box2d world)
+         * @param dw angular new angular velocity  of parent
+         * @param joint_vel joint_velocity of the joint connecting the parent with this link
+         * @param parent pointer to the parent body
          */
-        void propagateVelocityChange(const float& dx, const float& dy, const float& dw, const b2Body* parent);
+//        void propagateVelocityChange(float v_x, float v_y, float v_theta, float v_joint, b2Body* parent);
+        void updateBodyVelocities(const Eigen::VectorXf& all_dof_velocities,
+                                  std::vector< std::pair<b2Vec2, unsigned int> >& parent_joints,
+                                  unsigned int index_offset);
     };
 
     /**
@@ -205,7 +219,7 @@ namespace sim_env{
         Box2DJoint(const Box2DJoint& joint) = delete;
         Box2DJoint& operator=(const Box2DJoint& joint) = delete;
         Box2DJoint& operator=(Box2DJoint&&) = delete;
-        ~Box2DJoint();
+        ~Box2DJoint() override;
         float getPosition() const override;
         void setPosition(float v) override;
         float getVelocity() const override;
@@ -214,8 +228,8 @@ namespace sim_env{
         void getPositionLimits(Eigen::Array2f& limits) const override;
         Eigen::Array2f getVelocityLimits() const override;
         void getVelocityLimits(Eigen::Array2f& limits) const override;
-        Eigen::Array2f getAccelerationLimits() const;
-        void getAccelerationLimits(Eigen::Array2f& limits) const;
+        Eigen::Array2f getAccelerationLimits() const override;
+        void getAccelerationLimits(Eigen::Array2f& limits) const override;
         unsigned int getJointIndex() const override;
         unsigned int getDOFIndex() const override;
         JointType getJointType() const override;
@@ -224,8 +238,8 @@ namespace sim_env{
         Eigen::Affine3f getTransform() const override;
         WorldPtr getWorld() const override;
         ObjectPtr getObject() const override;
-        virtual LinkPtr getChildLink() const override;
-        virtual LinkPtr getParentLink() const override;
+        LinkPtr getChildLink() const override;
+        LinkPtr getParentLink() const override;
         WorldConstPtr getConstWorld() const override;
         ObjectConstPtr getConstObject() const override;
         void getDOFInformation(DOFInformation& info) const override;
@@ -252,6 +266,12 @@ namespace sim_env{
         void setDOFIndex(unsigned int index);
         void resetPosition(float value, bool child_joint_override);
         void setControlTorque(float value);
+        // retuns axis position in parent frame
+        b2Vec2 getLocalAxisPosition() const;
+        // returns axis position in global frame
+        b2Vec2 getGlobalAxisPosition() const;
+        // returns the box2d object this joint belongs to
+        Box2DObjectPtr getBox2DObject();
     private:
         Box2DWorldWeakPtr _world;
         std::string _name;
@@ -262,7 +282,7 @@ namespace sim_env{
         bool _destroyed;
         unsigned int _joint_index;
         unsigned int _dof_index;
-        Eigen::Array2f _position_limits;
+        Eigen::Array2f _position_limits; // not a multiple of 16 bytes
         Eigen::Array2f _velocity_limits;
         Eigen::Array2f _acceleration_limits;
         std::string _object_name;
@@ -281,17 +301,17 @@ namespace sim_env{
          */
         Box2DObject() = delete;
         //TODO what about copy constructor?
-        ~Box2DObject();
+        ~Box2DObject() override;
 
-        virtual std::string getName() const override;
-        virtual EntityType getType() const override;
-        virtual Eigen::Affine3f getTransform() const override;
-        virtual WorldPtr getWorld() const override;
-        virtual WorldConstPtr getConstWorld() const override;
+        std::string getName() const override;
+        EntityType getType() const override;
+        Eigen::Affine3f getTransform() const override;
+        WorldPtr getWorld() const override;
+        WorldConstPtr getConstWorld() const override;
         Box2DWorldPtr getBox2DWorld() const;
         Eigen::Vector3f getPose() const;
         void getPose(Eigen::Vector3f& pose) const;
-        virtual void setTransform(const Eigen::Affine3f& tf) override;
+        void setTransform(const Eigen::Affine3f& tf) override;
 
         bool checkCollision() override;
         bool checkCollision(std::vector<Contact> &contacts) override;
@@ -300,35 +320,39 @@ namespace sim_env{
         bool checkCollision(const std::vector<ObjectPtr> &other_objects) override;
         bool checkCollision(const std::vector<ObjectPtr> &other_objects, std::vector<Contact> &contacts) override;
 
-        virtual void setActiveDOFs(const Eigen::VectorXi& indices) override;
-        virtual Eigen::VectorXi getActiveDOFs() const override;
-        virtual unsigned int getNumActiveDOFs() const override;
-        virtual unsigned int getNumDOFs() const override;
+        void setActiveDOFs(const Eigen::VectorXi& indices) override;
+        Eigen::VectorXi getActiveDOFs() const override;
+        unsigned int getNumActiveDOFs() const override;
+        unsigned int getNumDOFs() const override;
         unsigned int getNumBaseDOFs() const override;
-        virtual Eigen::VectorXi getDOFIndices() const override;
-        virtual Eigen::VectorXf getDOFPositions(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
-        virtual Eigen::ArrayX2f getDOFPositionLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        Eigen::VectorXi getDOFIndices() const override;
+        Eigen::VectorXf getDOFPositions(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        Eigen::ArrayX2f getDOFPositionLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
-        virtual DOFInformation getDOFInformation(unsigned int dof_index) const;
-        virtual void getDOFInformation(unsigned int dof_index, DOFInformation& info) const;
-        virtual void setDOFPositions(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
+        DOFInformation getDOFInformation(unsigned int dof_index) const override;
+        void getDOFInformation(unsigned int dof_index, DOFInformation& info) const override;
+        void setDOFPositions(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
 
-        virtual Eigen::VectorXf getDOFVelocities(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
-        virtual Eigen::ArrayX2f getDOFVelocityLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
-        virtual Eigen::ArrayX2f getDOFAccelerationLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        Eigen::VectorXf getDOFVelocities(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        Eigen::ArrayX2f getDOFVelocityLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        Eigen::ArrayX2f getDOFAccelerationLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
 
-        virtual void setDOFVelocities(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
+        void setDOFVelocities(const Eigen::VectorXf& values, const Eigen::VectorXi& indices=Eigen::VectorXi()) override;
+        void setToRest();
+        bool atRest(float threshold=0.0001f) const override;
 
-        virtual bool isStatic() const override;
+        bool isStatic() const override;
 
-        virtual void getLinks(std::vector<LinkPtr>& links) override;
-        virtual void getLinks(std::vector<LinkConstPtr>& links) const override;
-        virtual LinkPtr getLink(const std::string &link_name) override;
-        virtual LinkConstPtr getConstLink(const std::string &link_name) const override;
-        virtual LinkPtr getBaseLink() override;
+        void getLinks(std::vector<LinkPtr>& links) override;
+        void getLinks(std::vector<LinkConstPtr>& links) const override;
+        LinkPtr getLink(const std::string &link_name) override;
+        LinkConstPtr getConstLink(const std::string &link_name) const override;
+        LinkPtr getBaseLink() override;
 
-        virtual void getJoints(std::vector<JointPtr>& joints) override;
-        virtual void getJoints(std::vector<JointConstPtr>& joints) const override;
+        void getJoints(std::vector<JointPtr>& joints) override;
+        void getBox2DJoints(std::vector<Box2DJointPtr>& joints);
+        void getJoints(std::vector<JointConstPtr>& joints) const override;
+        void getBox2DJoints(std::vector<Box2DJointConstPtr>& joints) const;
         JointPtr getJoint(const std::string &joint_name) override;
         JointPtr getJoint(unsigned int joint_idx) override;
         JointPtr getJointFromDOFIndex(unsigned int dof_idx) override;
@@ -336,38 +360,39 @@ namespace sim_env{
         JointConstPtr getConstJoint(unsigned int joint_idx) const override;
         JointConstPtr getConstJointFromDOFIndex(unsigned int dof_idx) const override;
 
+        void getState(ObjectState &object_state) const override;
+        ObjectState getState() const override;
+        void setState(const ObjectState &object_state) override;
+
         // Box2D specific methods
         /**
          * Returns the total mass of this object.
          * (i.e. the sum of the mass of all its bodies)
          * @return mass
          */
-        float getMass() const; //TODO maybe make it part of the sim_env interface
+        float getMass() const override;
         /**
          * Returns the moment of inertia of this object (given the current configuration).
          * @return moment of inertia
          */
-        float getInertia() const; //TODO maybe make it part of the sim_env interface (with Eigen::MatrixXf as return type?)
+        float getInertia() const override;
+        BoundingBox getLocalAABB() const override;
+        float getGroundFriction() const override;
         virtual Box2DLinkPtr getBox2DBaseLink();
         void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
-
-        void getState(ObjectState &object_state) const override;
-
-        ObjectState getState() const override;
-
-        void setState(const ObjectState &object_state) override;
-
+        void setPose(float x, float y, float theta);
 
     protected:
         // ensure only friend classes can construct this
         Box2DObject(const Box2DObjectDescription& obj_desc, Box2DWorldPtr world);
         // function for destruction. called by Box2DWorld when it is destroyed.
         void destroy(const std::shared_ptr<b2World>& b2world);
-        virtual void setName(const std::string &name) override;
+        void setName(const std::string &name) override;
         Box2DJointPtr getBox2DJoint(unsigned int idx);
         // puts all link bodies into the given list (for collision checking)
         void getBodies(std::vector<b2Body *> &bodies) override;
         LinkPtr getLink(b2Body* body) override;
+        void updateBodyVelocities(const Eigen::VectorXf& all_dof_velocities);
 
         // these can be overwritten by Box2DRobot
         DOFInformation _x_dof_info;
@@ -377,7 +402,9 @@ namespace sim_env{
         std::string _name;
         Box2DWorldWeakPtr _world;
         float _mass;
+        BoundingBox _local_bounding_box;
         Eigen::VectorXi _active_dof_indices;
+        Eigen::VectorXi _all_dof_indices;
         unsigned int _num_dofs;
         std::map<std::string, Box2DLinkPtr> _links; // the object is responsible for the lifetime of its links
         Box2DLinkPtr _base_link;
@@ -393,12 +420,13 @@ namespace sim_env{
      */
     class Box2DRobot : public Robot, public Box2DCollidable, public std::enable_shared_from_this<Box2DRobot>{
         friend class Box2DWorld;
+        friend class Box2DJoint;
     public:
         /**
          * A Box2DRobot can only be instantiated by a Box2DWorld.
          */
         Box2DRobot() = delete;
-        ~Box2DRobot();
+        ~Box2DRobot() override;
         // entity functions
         virtual std::string getName() const override;
         void setTransform(const Eigen::Affine3f &tf) override;
@@ -408,21 +436,23 @@ namespace sim_env{
         WorldConstPtr getConstWorld() const override;
         // DOFs
         void setActiveDOFs(const Eigen::VectorXi &indices) override;
-        virtual unsigned int getNumDOFs() const override;
-        virtual unsigned int getNumActiveDOFs() const override;
+        unsigned int getNumDOFs() const override;
+        unsigned int getNumActiveDOFs() const override;
         unsigned int getNumBaseDOFs() const override;
-        virtual DOFInformation getDOFInformation(unsigned int dof_index) const;
-        virtual void getDOFInformation(unsigned int dof_index, DOFInformation& info) const;
+        DOFInformation getDOFInformation(unsigned int dof_index) const override;
+        void getDOFInformation(unsigned int dof_index, DOFInformation& info) const override;
         Eigen::VectorXi getActiveDOFs() const override;
         Eigen::VectorXi getDOFIndices() const override;
         Eigen::VectorXf getDOFPositions(const Eigen::VectorXi &indices=Eigen::VectorXi()) const override;
-        virtual Eigen::ArrayX2f getDOFPositionLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        Eigen::ArrayX2f getDOFPositionLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
         void setDOFPositions(const Eigen::VectorXf &values, const Eigen::VectorXi &indices=Eigen::VectorXi()) override;
         Eigen::VectorXf getDOFVelocities(const Eigen::VectorXi &indices=Eigen::VectorXi()) const override;
-        virtual Eigen::ArrayX2f getDOFVelocityLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        Eigen::ArrayX2f getDOFVelocityLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        void setToRest();
         void setDOFVelocities(const Eigen::VectorXf &values, const Eigen::VectorXi &indices=Eigen::VectorXi()) override;
-        virtual Eigen::ArrayX2f getDOFAccelerationLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
+        Eigen::ArrayX2f getDOFAccelerationLimits(const Eigen::VectorXi& indices=Eigen::VectorXi()) const override;
         bool isStatic() const override;
+        bool atRest(float threshold=0.0001f) const override;
         // collision checking
         bool checkCollision() override;
         bool checkCollision(std::vector<Contact> &contacts) override;
@@ -431,26 +461,31 @@ namespace sim_env{
         bool checkCollision(const std::vector<ObjectPtr> &other_objects) override;
         bool checkCollision(const std::vector<ObjectPtr> &other_objects, std::vector<Contact> &contacts) override;
         // links
-        virtual void getLinks(std::vector<LinkPtr>& links) override;
-        virtual void getLinks(std::vector<LinkConstPtr>& links) const override;
-        virtual void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
-        virtual LinkPtr getLink(const std::string &link_name) override;
-        virtual LinkConstPtr getConstLink(const std::string &link_name) const override;
-        virtual LinkPtr getBaseLink() override;
+        void getLinks(std::vector<LinkPtr>& links) override;
+        void getLinks(std::vector<LinkConstPtr>& links) const override;
+        void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
+        LinkPtr getLink(const std::string &link_name) override;
+        LinkConstPtr getConstLink(const std::string &link_name) const override;
+        LinkPtr getBaseLink() override;
         Box2DLinkPtr getBox2DBaseLink();
         // joints
-        virtual void getJoints(std::vector<JointPtr>& joints) override;
-        virtual void getJoints(std::vector<JointConstPtr>& joints) const override;
-        virtual JointPtr getJoint(const std::string &joint_name) override;
-        virtual JointConstPtr getConstJoint(const std::string &joint_name) const override;
+        void getJoints(std::vector<JointPtr>& joints) override;
+        void getBox2DJoints(std::vector<Box2DJointPtr>& joints);
+        void getJoints(std::vector<JointConstPtr>& joints) const override;
+        void getBox2DJoints(std::vector<Box2DJointConstPtr>& joints) const;
+        JointPtr getJoint(const std::string &joint_name) override;
+        JointConstPtr getConstJoint(const std::string &joint_name) const override;
         JointPtr getJoint(unsigned int joint_idx) override;
         JointPtr getJointFromDOFIndex(unsigned int dof_idx) override;
         JointConstPtr getConstJoint(unsigned int joint_idx) const override;
         JointConstPtr getConstJointFromDOFIndex(unsigned int dof_idx) const override;
         // control
-        virtual void setController(ControlCallback control_fn) override;
-        float getMass() const;
-        float getInertia() const;
+        void setController(ControlCallback control_fn) override;
+        float getMass() const override;
+        float getInertia() const override;
+        BoundingBox getLocalAABB() const override;
+        float getGroundFriction() const override;
+
         // state retrieval
         void getState(ObjectState &object_state) const override;
         ObjectState getState() const override;
@@ -461,12 +496,14 @@ namespace sim_env{
         Box2DRobot(const Box2DRobotDescription &robot_desc, Box2DWorldPtr world);
         // destruction is issued by Box2DWorld
         void destroy(const std::shared_ptr<b2World>& b2world);
-        virtual void setName(const std::string &name) override;
+        void setName(const std::string &name) override;
         // calls control callbacks. should be called only by step function of Box2DWorld
         void control(float timestep);
         // retrieve all box2d bodies (for collision checking)
         void getBodies(std::vector<b2Body *> &bodies) override;
         LinkPtr getLink(b2Body* body) override;
+        // returns the underlying box2d object
+        Box2DObjectPtr getBox2DObject();
 
     private:
         bool _destroyed;
@@ -480,8 +517,8 @@ namespace sim_env{
 
     class Box2DCollisionChecker : public b2ContactListener {
     public:
-        Box2DCollisionChecker(Box2DWorldPtr world);
-        ~Box2DCollisionChecker();
+        explicit Box2DCollisionChecker(Box2DWorldPtr world);
+        ~Box2DCollisionChecker() override;
         /**
          * Checks whether both provided collidables collide.
          * @param collidable_a
@@ -534,25 +571,28 @@ namespace sim_env{
                             std::vector<Contact>& contacts);
 
         // b2ContactListener
-        void BeginContact(b2Contact* contact);
-        void EndContact(b2Contact* contact);
-        void PreSolve(b2Contact* contact, const b2Manifold* oldManifold);
-        void PostSolve(b2Contact* contact, const b2ContactImpulse* impulse);
+        void BeginContact(b2Contact* contact) override;
+        void EndContact(b2Contact* contact) override;
+        void PreSolve(b2Contact* contact, const b2Manifold* oldManifold) override;
+        void PostSolve(b2Contact* contact, const b2ContactImpulse* impulse) override;
+        void invalidateCache();
     private:
         Box2DWorldWeakPtr _weak_world;
-        bool _record_contacts;
+        bool _cache_invalid;
         float _scale;
-        typedef std::map<b2Body*, Contact> ContactMap;
-        std::map<b2Body*, ContactMap> _contact_maps;
-        std::map<b2Body*, LinkWeakPtr> _body_to_link_map;
+        typedef std::unordered_map<b2Body*, Contact> ContactMap;
+        std::unordered_map<b2Body*, ContactMap> _contact_maps;
+        std::unordered_map<b2Body*, LinkWeakPtr> _body_to_link_map;
 
-        // TODO instead of always updating all contacts, we could listen to the world and only update
+        // TODO instead of always updating all contacts, we listen to the world and only update
         // TODO contacts if there were changes
         void updateContacts();
         // TODO maybe we can make some of these inline?
         void addContact(b2Body* body_a, b2Body* body_b, b2Contact* contact);
+        void removeContact(b2Body* body_a, b2Body* body_b);
         bool areInContact(b2Body* body_a, b2Body* body_b) const;
         bool hasContacts(b2Body* body) const;
+        Box2DWorldPtr getWorld();
         LinkPtr getLink(b2Body* body, Box2DCollidablePtr collidable);
     };
 
@@ -566,6 +606,7 @@ namespace sim_env{
         friend class Box2DRobot;
         friend class Box2DCollisionChecker;
     public:
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
         static constexpr float GROUND_DEFAULT_MIN_X = -100.0f;
         static constexpr float GROUND_DEFAULT_MIN_Y = -100.0f;
         static constexpr float GROUND_DEFAULT_MAX_X = 100.0f;
@@ -579,16 +620,24 @@ namespace sim_env{
         ~Box2DWorld(); // we can ignore the warning that we are hiding enable_shared_from_this' destructor
 
         void loadWorld(const std::string &path) override;
+        void loadWorld(const Box2DEnvironmentDescription& env_desc);
 
-        RobotPtr getRobot(const std::string &name) const override;
-        Box2DRobotPtr getBox2DRobot(const std::string& name) const;
-        void getRobots(std::vector<RobotPtr> &robots) const override;
+        RobotPtr getRobot(const std::string &name) override;
+        RobotConstPtr getRobotConst(const std::string &name) const override;
+        Box2DRobotPtr getBox2DRobot(const std::string& name);
+        Box2DRobotConstPtr getBox2DRobotConst(const std::string& name) const;
+        void getRobots(std::vector<RobotPtr> &robots) override;
+        void getRobots(std::vector<RobotConstPtr> &robots) const override;
 
-        ObjectPtr getObject(const std::string &name, bool exclude_robots=true) const override;
-        Box2DObjectPtr getBox2DObject(const std::string& name) const;
-        void getObjects(std::vector<ObjectPtr> &objects, bool exclude_robots=true) const override;
+        ObjectPtr getObject(const std::string &name, bool exclude_robots) override;
+        ObjectConstPtr getObjectConst(const std::string &name, bool exclude_robots) const override;
+        Box2DObjectPtr getBox2DObject(const std::string& name);
+        Box2DObjectConstPtr getBox2DObjectConst(const std::string& name) const;
+        void getObjects(std::vector<ObjectPtr> &objects, bool exclude_robots) override;
+        void getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_robots) const override;
 
         void stepPhysics(int steps) override;
+        void stepPhysics(int steps, bool execute_controller, bool allow_sleeping);
         bool supportsPhysics() const override;
         void setPhysicsTimeStep(float physics_step) override;
         void setVelocitySteps(int velocity_steps);
@@ -596,9 +645,11 @@ namespace sim_env{
         float getPhysicsTimeStep() const override;
         int getVelocitySteps() const;
         int getPositionSteps() const;
+        bool isPhysicallyFeasible() override;
 
         WorldViewerPtr getViewer() override;
         LoggerPtr getLogger() override;
+        LoggerConstPtr getConstLogger() const override;
 
         bool checkCollision(LinkPtr link) override;
         bool checkCollision(LinkPtr link, std::vector<Contact> &contacts) override;
@@ -617,17 +668,24 @@ namespace sim_env{
         bool checkCollision(LinkPtr link_a, const std::vector<ObjectPtr> &other_objects) override;
         bool checkCollision(LinkPtr link_a, const std::vector<ObjectPtr> &other_objects,
                             std::vector<Contact> &contacts) override;
-        std::recursive_mutex& getMutex() const;
-        void saveState();
-        bool restoreState();
+        std::recursive_mutex& getMutex() const override;
+
+        bool atRest(float threshold=0.0001f) const override;
+
+        void saveState() override;
+        bool restoreState() override;
         WorldState getWorldState() const override;
         void getWorldState(WorldState &state) const override;
         bool setWorldState(WorldState &state) override;
+        void printWorldState(Logger::LogLevel level) const override;
 
         // Box2D specific
         float getScale() const;
         float getInverseScale() const;
         float getGravity() const;
+        Eigen::Vector4f getWorldBounds() const;
+        void invalidateCollisionCache();
+        void setToRest();
 
     protected:
         std::shared_ptr<b2World> getRawBox2DWorld();
@@ -635,17 +693,19 @@ namespace sim_env{
         LinkPtr getLink(b2Body* body);
     private:
         mutable std::recursive_mutex _world_mutex;
-        b2Body* _b2_ground_body;
         std::shared_ptr<b2World> _world;
-        LoggerPtr _logger;
-        float _scale;
+        b2Body* _b2_ground_body;
+        Box2DCollisionCheckerPtr _collision_checker;
         float _time_step;
         int _velocity_steps;
         int _position_steps;
+        LoggerPtr _logger;
+        float _scale;
         std::map<std::string, Box2DObjectPtr> _objects;
         std::map<std::string, Box2DRobotPtr> _robots;
-        Box2DCollisionCheckerPtr _collision_checker;
         std::stack<WorldState> _state_stack;
+        Eigen::Vector4f _world_bounds;
+        WorldViewerPtr _world_viewer;
 
         void eraseWorld();
         void createWorld(const Box2DEnvironmentDescription& env_desc);
