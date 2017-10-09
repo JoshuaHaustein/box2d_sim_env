@@ -35,6 +35,7 @@ sim_env::viewer::Box2DObjectView::Box2DObjectView(sim_env::Box2DObjectPtr object
     _world_view = world_view;
     std::vector<LinkConstPtr> links;
     object->getLinks(links);
+    setFlag(GraphicsItemFlag::ItemIsSelectable, true);
     for (auto& link : links){
         Box2DLinkConstPtr box2d_link = std::static_pointer_cast<const Box2DLink>(link);
         Box2DLinkView* link_view = new Box2DLinkView(box2d_link, this);
@@ -68,6 +69,12 @@ void sim_env::viewer::Box2DObjectView::paint(QPainter *painter, const QStyleOpti
                             object_transform(0, 1), object_transform(1, 1),
                             object_transform(0, 3), object_transform(1, 3));
     setTransform(my_transform);
+    if (isSelected()) {
+        painter->setPen(QColor(255, 0, 0));
+        painter->drawLine(0, 0, 1, 0);
+        painter->setPen(QColor(0, 255, 0));
+        painter->drawLine(0, 0, 0, 1);
+    }
 }
 
 void sim_env::viewer::Box2DObjectView::mousePressEvent(QGraphicsSceneMouseEvent *event) {
@@ -83,6 +90,7 @@ sim_env::viewer::Box2DRobotView::Box2DRobotView(sim_env::Box2DRobotPtr robot, Bo
     _world_view = world_view;
     std::vector<LinkConstPtr> links;
     robot->getLinks(links);
+    setFlag(GraphicsItemFlag::ItemIsSelectable, true);
     for (auto& link : links) {
         Box2DLinkConstPtr box2d_link = std::static_pointer_cast<const Box2DLink>(link);
         // we can safely ignore the warning of link_view being unused here
@@ -120,6 +128,12 @@ void sim_env::viewer::Box2DRobotView::paint(QPainter *painter, const QStyleOptio
                             robot_transform(0, 1), robot_transform(1, 1),
                             robot_transform(0, 3), robot_transform(1, 3));
     setTransform(my_transform);
+    if (isSelected()) {
+        painter->setPen(QColor(255, 0, 0));
+        painter->drawLine(0, 0, 1, 0);
+        painter->setPen(QColor(0, 255, 0));
+        painter->drawLine(0, 0, 0, 1);
+    }
 }
 
 //////////////////////////////////////// Box2DLinkView ////////////////////////////////////////
@@ -575,6 +589,9 @@ void sim_env::viewer::Box2DObjectStateView::showValues(bool update_input_fields)
     } else {
         _collision_display->setStyleSheet("QLabel {background-color: green};");
         _collision_display->setText("No collision");
+    }
+    if (not object->getWorld()->isPhysicallyFeasible()) {
+        object->getWorld()->getLogger()->logDebug("State physically infeasible", "[Box2DObjectStateView::showValues]");
     }
 }
 
@@ -1081,8 +1098,8 @@ void sim_env::viewer::Box2DWorldView::refreshView() {
 }
 
 void sim_env::viewer::Box2DWorldView::setSelectedObject(sim_env::ObjectWeakPtr object) {
-  _currently_selected_object = object;
-  emit objectSelected(_currently_selected_object);
+    _currently_selected_object = object;
+    emit objectSelected(_currently_selected_object);
 }
 
 void sim_env::viewer::Box2DWorldView::scaleView(double scale_factor) {
