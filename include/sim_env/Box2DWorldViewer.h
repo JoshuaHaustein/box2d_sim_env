@@ -11,6 +11,7 @@
 #include <QtGui/QApplication>
 #include <QtGui/QGraphicsView>
 #include <QtGui/QGraphicsItem>
+#include <QtGui/QGraphicsSceneWheelEvent>
 #include <QtGui/QColor>
 #include <QtGui/QGroupBox>
 #include <QtGui/QLineEdit>
@@ -42,6 +43,8 @@ namespace sim_env {
             void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
         protected:
             void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
+            void wheelEvent(QGraphicsSceneWheelEvent* event) override;
+            QVariant itemChange(GraphicsItemChange change, const QVariant& value) override;
             Box2DObjectWeakPtr _object;
         private:
             Box2DWorldView* _world_view; // raw pointer, but this view is destroyed
@@ -56,6 +59,8 @@ namespace sim_env {
             void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
         protected:
             void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
+            void wheelEvent(QGraphicsSceneWheelEvent* event) override;
+            QVariant itemChange(GraphicsItemChange change, const QVariant& value) override;
             Box2DRobotWeakPtr _robot;
         private:
             Box2DWorldView* _world_view; // raw pointer, but this view is destroyed

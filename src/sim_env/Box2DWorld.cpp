@@ -1528,6 +1528,10 @@ void Box2DObject::setPose(float x, float y, float theta) {
     updateBodyVelocities(vel);
 }
 
+void Box2DObject::setPose(const Eigen::Vector3f& pose) {
+    setPose(pose[0], pose[1], pose[2]);
+}
+
 void Box2DObject::getBodies(std::vector<b2Body *> &bodies) {
     for (auto& link : _links) {
         Box2DLinkPtr box2d_link = link.second;
@@ -1943,6 +1947,21 @@ Box2DObjectPtr Box2DRobot::getBox2DObject() {
     return _robot_object;
 }
 
+Eigen::Vector3f Box2DRobot::getPose() const {
+    return _robot_object->getPose();
+}
+
+void Box2DRobot::getPose(Eigen::Vector3f& pose) const {
+    _robot_object->getPose(pose);
+}
+
+void Box2DRobot::setPose(const Eigen::Vector3f &pose) {
+    _robot_object->setPose(pose);
+}
+
+void Box2DRobot::setPose(float x, float y, float theta) {
+    _robot_object->setPose(x, y, theta);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DCollisionChecker members *///////////////////////
