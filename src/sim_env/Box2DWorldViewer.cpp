@@ -40,14 +40,14 @@ sim_env::viewer::Box2DObjectView::Box2DObjectView(sim_env::Box2DObjectPtr object
     setFlag(GraphicsItemFlag::ItemSendsScenePositionChanges, true);
     for (auto& link : links){
         Box2DLinkConstPtr box2d_link = std::static_pointer_cast<const Box2DLink>(link);
-        Box2DLinkView* link_view = new Box2DLinkView(box2d_link, this);
+        _link_views.emplace_back(new Box2DLinkView(box2d_link, this));
         if (object->isStatic()) {
-            link_view->setColors(QColor(255, 20, 20), QColor(0,0,0));
+            _default_color.setRgb(255, 20, 20);
         } else {
-            link_view->setColors(QColor(20, 20, 255), QColor(0,0,0));
+            _default_color.setRgb(20, 20, 255);
         }
     }
-//    _previous_position = pos();
+    resetColor();
 }
 
 sim_env::viewer::Box2DObjectView::~Box2DObjectView() = default;
@@ -74,6 +74,18 @@ void sim_env::viewer::Box2DObjectView::paint(QPainter *painter, const QStyleOpti
         painter->setPen(QColor(0, 255, 0));
         painter->drawLine(0, 0, 0, 1);
     }
+}
+
+void sim_env::viewer::Box2DObjectView::setColor(float r, float g, float b) {
+    auto color = QColor();
+    color.setRgbF(r, g, b);
+    for (auto* link : _link_views) {
+        link->setColors(color, QColor(0, 0, 0));
+    }
+}
+
+void sim_env::viewer::Box2DObjectView::resetColor() {
+    setColor(_default_color.redF(), _default_color.greenF(), _default_color.blueF());
 }
 
 void sim_env::viewer::Box2DObjectView::mousePressEvent(QGraphicsSceneMouseEvent *event) {
@@ -128,15 +140,26 @@ sim_env::viewer::Box2DRobotView::Box2DRobotView(sim_env::Box2DRobotPtr robot, Bo
     setFlag(GraphicsItemFlag::ItemIsSelectable, true);
     setFlag(GraphicsItemFlag::ItemIsMovable, true);
     setFlag(GraphicsItemFlag::ItemSendsScenePositionChanges, true);
+    _default_color.setRgb(150, 150, 150);
     for (auto& link : links) {
         Box2DLinkConstPtr box2d_link = std::static_pointer_cast<const Box2DLink>(link);
-        // we can safely ignore the warning of link_view being unused here
-        // the link view is automatically added as child to this view
-        Box2DLinkView* link_view = new Box2DLinkView(box2d_link, this);
+        _link_views.emplace_back(new Box2DLinkView(box2d_link, this));
     }
 }
 
 sim_env::viewer::Box2DRobotView::~Box2DRobotView() = default;
+
+void sim_env::viewer::Box2DRobotView::setColor(float r, float g, float b) {
+    auto color = QColor();
+    color.setRgbF(r, g, b);
+    for (auto* link : _link_views) {
+        link->setColors(color, QColor(0, 0, 0));
+    }
+}
+
+void sim_env::viewer::Box2DRobotView::resetColor() {
+    setColor(_default_color.redF(), _default_color.greenF(), _default_color.blueF());
+}
 
 void sim_env::viewer::Box2DRobotView::mousePressEvent(QGraphicsSceneMouseEvent *event) {
     auto logger = DefaultLogger::getInstance();
@@ -1010,7 +1033,7 @@ void sim_env::viewer::Box2DWorldView::repopulate() {
         Box2DObjectPtr box2d_object = std::static_pointer_cast<Box2DObject>(object);
         Box2DObjectView* obj_view = new Box2DObjectView(box2d_object, this);
         _scene->addItem(obj_view);
-        _object_views.push_back(obj_view);
+        _object_views.insert(std::make_pair(box2d_object->getName(), obj_view));
     }
     // Create robot views
     std::vector<RobotPtr> robots;
@@ -1019,7 +1042,7 @@ void sim_env::viewer::Box2DWorldView::repopulate() {
         Box2DRobotPtr box2d_robot = std::static_pointer_cast<Box2DRobot>(robot);
         Box2DRobotView* robot_view = new Box2DRobotView(box2d_robot, this);
         _scene->addItem(robot_view);
-        _robot_views.push_back(robot_view);
+        _robot_views.insert(std::make_pair(box2d_robot->getName(), robot_view));
     }
     // add a rectangle showing the world bounds
     Eigen::VectorXf world_bounds = world->getWorldBounds();
@@ -1130,6 +1153,40 @@ QSize sim_env::viewer::Box2DWorldView::sizeHint() const {
                 (int)(_rel_height * parent_size.height())};
     }
     return {_width, _height};
+}
+
+void sim_env::viewer::Box2DWorldView::setColor(const std::string& name, float r, float g, float b) {
+    auto iter = _object_views.find(name);
+    if (iter != _object_views.end()) {
+        iter->second->setColor(r, g, b);
+    } else {
+        auto iter2 = _robot_views.find(name);
+        if (iter2 != _robot_views.end()) {
+            iter2->second->setColor(r, g, b);
+        } else {
+            // TODO error message using world logger
+            auto logger = sim_env::DefaultLogger::getInstance();
+            logger->logErr("Could not set color for object " + name + " because it was not found",
+                           "[sim_env::viewer::Box2DWorldView::setColor]");
+        }
+    }
+}
+
+void sim_env::viewer::Box2DWorldView::resetColor(const std::string& name) {
+    auto iter = _object_views.find(name);
+    if (iter != _object_views.end()) {
+        iter->second->resetColor();
+    } else {
+        auto iter2 = _robot_views.find(name);
+        if (iter2 != _robot_views.end()) {
+            iter2->second->resetColor();
+        } else {
+            // TODO error message using world logger
+            auto logger = sim_env::DefaultLogger::getInstance();
+            logger->logErr("Could not reset color for object " + name + " because it was not found",
+                           "[sim_env::viewer::Box2DWorldView::resetColor]");
+        }
+    }
 }
 
 void sim_env::viewer::Box2DWorldView::wheelEvent(QWheelEvent *event) {
@@ -1410,6 +1467,10 @@ QWidget* sim_env::Box2DWorldViewer::createSideBar() {
 
 void sim_env::Box2DWorldViewer::addCustomWidget(QWidget *widget, const std::string& name) {
     _bottom_tab_widget->addTab(widget, name.c_str());
+}
+
+sim_env::viewer::Box2DWorldView* sim_env::Box2DWorldViewer::getWorldViewer() {
+    return _world_view;
 }
 
 

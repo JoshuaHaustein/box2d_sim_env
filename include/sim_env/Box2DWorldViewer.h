@@ -35,38 +35,6 @@ namespace sim_env {
         }
 
         ////////////////////// VIEWS OF WOLRD COMPONENTS, I.E. VISUAL ITEMS /////////////////////////
-        class Box2DObjectView : public QGraphicsItem {
-        public:
-            Box2DObjectView(Box2DObjectPtr object, Box2DWorldView* world_view);
-            ~Box2DObjectView();
-            QRectF boundingRect() const override;
-            void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
-        protected:
-            void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
-            void wheelEvent(QGraphicsSceneWheelEvent* event) override;
-            QVariant itemChange(GraphicsItemChange change, const QVariant& value) override;
-            Box2DObjectWeakPtr _object;
-        private:
-            Box2DWorldView* _world_view; // raw pointer, but this view is destroyed
-                                        // when the parent view is desrtroyed
-        };
-
-        class Box2DRobotView : public QGraphicsItem {
-        public:
-            Box2DRobotView(Box2DRobotPtr robot, Box2DWorldView* world_view);
-            ~Box2DRobotView();
-            QRectF boundingRect() const override;
-            void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
-        protected:
-            void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
-            void wheelEvent(QGraphicsSceneWheelEvent* event) override;
-            QVariant itemChange(GraphicsItemChange change, const QVariant& value) override;
-            Box2DRobotWeakPtr _robot;
-        private:
-            Box2DWorldView* _world_view; // raw pointer, but this view is destroyed
-                                        // when the parent view is desrtroyed
-        };
-
         class Box2DLinkView : public QGraphicsItem {
         public:
             Box2DLinkView(Box2DLinkConstPtr link, QGraphicsItem *parent = 0);
@@ -81,6 +49,47 @@ namespace sim_env {
             QColor _border_color;
             QColor _fill_color;
         };
+
+        class Box2DObjectView : public QGraphicsItem {
+        public:
+            Box2DObjectView(Box2DObjectPtr object, Box2DWorldView* world_view);
+            ~Box2DObjectView();
+            QRectF boundingRect() const override;
+            void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
+            void setColor(float r, float g, float b);
+            void resetColor();
+        protected:
+            void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
+            void wheelEvent(QGraphicsSceneWheelEvent* event) override;
+            QVariant itemChange(GraphicsItemChange change, const QVariant& value) override;
+            Box2DObjectWeakPtr _object;
+        private:
+            Box2DWorldView* _world_view; // raw pointer, but this view is destroyed
+                                        // when the parent view is desrtroyed
+            std::vector<Box2DLinkView*> _link_views;
+            QColor _default_color;
+        };
+
+        class Box2DRobotView : public QGraphicsItem {
+        public:
+            Box2DRobotView(Box2DRobotPtr robot, Box2DWorldView* world_view);
+            ~Box2DRobotView();
+            QRectF boundingRect() const override;
+            void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
+            void setColor(float r, float g, float b);
+            void resetColor();
+        protected:
+            void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
+            void wheelEvent(QGraphicsSceneWheelEvent* event) override;
+            QVariant itemChange(GraphicsItemChange change, const QVariant& value) override;
+            Box2DRobotWeakPtr _robot;
+        private:
+            Box2DWorldView* _world_view; // raw pointer, but this view is destroyed
+                                        // when the parent view is desrtroyed
+            std::vector<Box2DLinkView*> _link_views;
+            QColor _default_color;
+        };
+
 
         class Box2DJointView : public QGraphicsItem {
         public:
@@ -222,7 +231,9 @@ namespace sim_env {
                                            float width=0.1f);
             void removeDrawing(const WorldViewer::Handle& handle);
             void removeAllDrawings();
-            virtual QSize sizeHint() const override;
+            QSize sizeHint() const override;
+            void setColor(const std::string& name, float r, float g, float b);
+            void resetColor(const std::string& name);
 
         public slots:
             void refreshView();
@@ -244,8 +255,8 @@ namespace sim_env {
             float _rel_height;
             Box2DWorldWeakPtr _world;
             sim_env::ObjectWeakPtr _currently_selected_object;
-            std::vector<Box2DObjectView *> _object_views;
-            std::vector<Box2DRobotView *> _robot_views;
+            std::map<std::string, Box2DObjectView *> _object_views;
+            std::map<std::string, Box2DRobotView *> _robot_views;
             std::map<unsigned int, QGraphicsItem*> _drawings;
             // The following members are required to ensure we only add/remove QGraphicsItem in the main thread.
             std::recursive_mutex _mutex_to_add;
@@ -313,6 +324,7 @@ namespace sim_env {
         void removeDrawing(const Handle& handle) override;
         void removeAllDrawings() override;
         void addCustomWidget(QWidget* widget, const std::string& name);
+        viewer::Box2DWorldView* getWorldViewer();
 
     protected:
         void log(const std::string& msg, const std::string& prefix,
