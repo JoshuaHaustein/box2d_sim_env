@@ -1192,9 +1192,11 @@ void sim_env::viewer::Box2DWorldView::resetColor(const std::string& name) {
 void sim_env::viewer::Box2DWorldView::wheelEvent(QWheelEvent *event) {
     // TODO limit total scene size somhow to bounding box (i.e. we do not want the scrollbars to show
     // TODO when we see all object
-    QGraphicsView::wheelEvent(event);
-    if (not event->isAccepted()) {
+    if (event->modifiers() & Qt::ControlModifier) { // if the ctrl key is pressed
         scaleView(pow(2.0, -event->delta() / 240.0));
+        event->setAccepted(true);
+    } else {
+        QGraphicsView::wheelEvent(event);
     }
 }
 
