@@ -2718,7 +2718,7 @@ void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
                 object = robot->getBox2DObject();
             }
             if (object == nullptr) {
-                std::string err_msg = boost::str(boost::format("Could not find object %1 in scene. Skipping this...")
+                std::string err_msg = boost::str(boost::format("Could not find object %1% in scene. Skipping this...")
                                                  % state_desc.first);
                 _logger->logErr(err_msg,
                                 "sim_env/Box2DWorld.cpp::createWorld");
