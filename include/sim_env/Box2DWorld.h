@@ -12,6 +12,8 @@
 #include <boost/filesystem/path.hpp>
 #include <yaml-cpp/yaml.h>
 #include <unordered_map>
+#include <boost/geometry/geometries/polygon.hpp>
+#include <boost/geometry/geometries/point_xy.hpp>
 #include "Box2D/Box2D.h"
 
 namespace sim_env{
@@ -132,6 +134,9 @@ namespace sim_env{
         JointConstPtr getConstParentJoint() const override;
 
         void getGeometry(std::vector< std::vector<Eigen::Vector2f> >& geometry) const;
+        void getBoostGeometry(std::vector< boost::geometry::model::polygon <boost::geometry::model::d2::point_xy<float>, false> >& polygons) const;
+        void getWorldBoostGeometry(std::vector< boost::geometry::model::polygon <boost::geometry::model::d2::point_xy<float>, false> >& polygons) const;
+        const std::vector< boost::geometry::model::polygon <boost::geometry::model::d2::point_xy<float>, false> >& getBoostGeometry() const;
         float getMass() const override;
         float getGroundFriction() const override;
         void setMass(float mass) override;
@@ -186,6 +191,7 @@ namespace sim_env{
         std::vector<Box2DJointWeakPtr> _child_joints;
         Box2DJointWeakPtr _parent_joint;
         BoundingBox _local_aabb;
+        std::vector< boost::geometry::model::polygon <boost::geometry::model::d2::point_xy<float>, false> > _boost_polygons;
         float _ground_friction;
         float _friction_ratio;
         bool _destroyed;
@@ -381,6 +387,7 @@ namespace sim_env{
         virtual Box2DLinkPtr getBox2DBaseLink();
         void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
         void setPose(float x, float y, float theta);
+        void setPose(const Eigen::Vector3f& pose);
 
     protected:
         // ensure only friend classes can construct this
@@ -490,6 +497,10 @@ namespace sim_env{
         void getState(ObjectState &object_state) const override;
         ObjectState getState() const override;
         void setState(const ObjectState &object_state) override;
+        Eigen::Vector3f getPose() const;
+        void getPose(Eigen::Vector3f& pose) const;
+        void setPose(const Eigen::Vector3f& pose);
+        void setPose(float x, float y, float theta);
 
     protected:
         // protected constructor to ensure construction is only done by friend classes
@@ -651,6 +662,8 @@ namespace sim_env{
         LoggerPtr getLogger() override;
         LoggerConstPtr getConstLogger() const override;
 
+
+        bool checkCollision(std::vector<Contact>& contacts) override;
         bool checkCollision(LinkPtr link) override;
         bool checkCollision(LinkPtr link, std::vector<Contact> &contacts) override;
         bool checkCollision(LinkPtr link, const std::vector<LinkPtr> &other_links) override;

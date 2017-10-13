@@ -16,6 +16,7 @@
 #include <boost/format.hpp>
 
 #define FLOAT_NOISE_TOLERANCE 0.0001f
+#define MAX_ALLOWED_INTERSECTION_AREA 0.0001f
 
 using namespace sim_env;
 namespace bg = boost::geometry;
@@ -61,15 +62,14 @@ Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world,
             _local_aabb.min_corner[1] = std::min(polygon.at(2 * i + 1), _local_aabb.min_corner[1]);
             _local_aabb.max_corner[0] = std::max(polygon.at(2 * i), _local_aabb.max_corner[0]);
             _local_aabb.max_corner[1] = std::max(polygon.at(2 * i + 1), _local_aabb.max_corner[1]);
-            // scale it
-            float x = world->getScale() * polygon.at(2 * i);
-            float y = world->getScale() * polygon.at(2 * i + 1);
-            // create put vertex in buffer and in boost polygon
-            b2_polygon.emplace_back(b2Vec2(x, y));
-            bg::append(boost_polygon, bg::model::d2::point_xy<float>(x, y));
+            //  put vertex in buffer (scaled) and in boost polygon
+            b2_polygon.emplace_back(b2Vec2(world->getScale() * polygon.at(2 * i), world->getScale() * polygon.at(2 * i + 1)));
+            bg::append(boost_polygon, bg::model::d2::point_xy<float>(polygon.at(2 * i), polygon.at(2 * i + 1)));
         }
-        // compute the area
-        area += bg::area(boost_polygon);
+        bg::correct(boost_polygon); // ensures that the polygon fulfills all criteria required for a valid boost polygon
+        _boost_polygons.push_back(boost_polygon);
+        // compute the area (scaled)
+        area += world->getScale() * world->getScale() * bg::area(boost_polygon);
         // add the shape
         b2_shape.Set(b2_polygon.data(), (int32) b2_polygon.size());
         shape_defs.push_back(b2_shape);
@@ -223,6 +223,7 @@ void Box2DLink::registerParentJoint(Box2DJointPtr joint) {
 }
 
 void Box2DLink::getGeometry(std::vector<std::vector<Eigen::Vector2f> > &geometry) const {
+    // TODO we could/should just read this from the boost polygons
     Box2DWorldPtr world = getBox2DWorld();
     Box2DWorldLock lock(world->getMutex());
     b2Fixture* fixture = _body->GetFixtureList();
@@ -244,6 +245,35 @@ void Box2DLink::getGeometry(std::vector<std::vector<Eigen::Vector2f> > &geometry
     }
 }
 
+void Box2DLink::getBoostGeometry(
+        std::vector<boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<float>, false> > &polygons) const {
+    polygons = _boost_polygons;
+}
+
+void Box2DLink::getWorldBoostGeometry(
+        std::vector<boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<float>, false> > &polygons) const {
+
+    struct TransformStruct {
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+        Eigen::Affine3f my_transform;
+        b2Vec2 shift_vec;
+        TransformStruct(const Eigen::Affine3f& transform, b2Vec2 offset) :
+                my_transform(transform), shift_vec(offset){}
+        inline void operator()(bg::model::d2::point_xy<float>& point) {
+            Eigen::Vector4f position(bg::get<0>(point) - shift_vec.x, bg::get<1>(point) - shift_vec.y, 0.0f, 1.0f);
+            position = my_transform * position;
+            bg::set<0>(point, position[0]);
+            bg::set<1>(point, position[1]);
+        }
+    };
+
+    auto world = getBox2DWorld();
+    for (auto& polygon : _boost_polygons) {
+        bg::model::polygon <bg::model::d2::point_xy<float>, false> world_polygon(polygon);
+        bg::for_each_point(world_polygon, TransformStruct(getTransform(), world->getInverseScale() * _local_origin_offset));
+        polygons.push_back(world_polygon);
+    }
+}
 //void Box2DLink::setTransform(const Eigen::Affine3f &tf) {
 //    if (not _parent_joint.expired()) {
 //        throw std::logic_error("Setting transform of link within kinematic chain directly, is not supported."
@@ -423,6 +453,7 @@ void Box2DLink::setOriginToCenterOfMass() {
                                     "[sim_env::Box2DLink::setOriginToCenterOfMass]");
     }
     _local_origin_offset = _body->GetLocalCenter();
+
 }
 
 bool Box2DLink::checkCollision() {
@@ -498,6 +529,12 @@ void Box2DLink::updateBodyVelocities(const Eigen::VectorXf& all_dof_velocities,
         parent_joints.pop_back();
     }
 }
+
+const std::vector<boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<float>, false> > &
+Box2DLink::getBoostGeometry() const {
+    return _boost_polygons;
+}
+
 
 ///////////////////////////////// PRIVATE //////////////////////////////////////
 //void Box2DLink::propagateVelocityChange(float v_x,
@@ -1491,6 +1528,10 @@ void Box2DObject::setPose(float x, float y, float theta) {
     updateBodyVelocities(vel);
 }
 
+void Box2DObject::setPose(const Eigen::Vector3f& pose) {
+    setPose(pose[0], pose[1], pose[2]);
+}
+
 void Box2DObject::getBodies(std::vector<b2Body *> &bodies) {
     for (auto& link : _links) {
         Box2DLinkPtr box2d_link = link.second;
@@ -1906,6 +1947,21 @@ Box2DObjectPtr Box2DRobot::getBox2DObject() {
     return _robot_object;
 }
 
+Eigen::Vector3f Box2DRobot::getPose() const {
+    return _robot_object->getPose();
+}
+
+void Box2DRobot::getPose(Eigen::Vector3f& pose) const {
+    _robot_object->getPose(pose);
+}
+
+void Box2DRobot::setPose(const Eigen::Vector3f &pose) {
+    _robot_object->setPose(pose);
+}
+
+void Box2DRobot::setPose(float x, float y, float theta) {
+    _robot_object->setPose(x, y, theta);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DCollisionChecker members *///////////////////////
@@ -2373,8 +2429,32 @@ int Box2DWorld::getPositionSteps() const {
 }
 
 bool Box2DWorld::isPhysicallyFeasible() {
-    // TODO after collision check, check whether colliding bodies are intersecting more than some threshold
-    // TODO can do this with boost::geometry. there are union (to unify fixtures) and intersection algorithms
+    std::vector<Contact> contacts;
+    checkCollision(contacts);
+    for (auto& contact : contacts) {
+        auto link_a = std::dynamic_pointer_cast<Box2DLink>(contact.link_a.lock());
+        auto link_b = std::dynamic_pointer_cast<Box2DLink>(contact.link_b.lock());
+        std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false> > polygons_a;
+        std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false> > polygons_b;
+        link_a->getWorldBoostGeometry(polygons_a);
+        link_b->getWorldBoostGeometry(polygons_b);
+        for (auto& polygon_a : polygons_a) {
+            for (auto& polygon_b : polygons_b) {
+                std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false> > intersections;
+                bg::correct(polygon_a);
+                bg::correct(polygon_b);
+                bg::intersection(polygon_a, polygon_b, intersections);
+                for (auto& intersection : intersections) {
+                    float area = bg::area(intersection);
+//                    auto logger = getLogger();
+//                    logger->logDebug(boost::format("Area is %f") % area, "[Box2DWorld::isPhysicallyFeasible]");
+                    if (area > MAX_ALLOWED_INTERSECTION_AREA) {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
     return true;
 }
 
@@ -2759,6 +2839,17 @@ bool Box2DWorld::checkCollision(LinkPtr link_a, const std::vector<ObjectPtr> &ot
     return _collision_checker->checkCollision(collidable_a, collidables, contacts);
 }
 
+bool Box2DWorld::checkCollision(std::vector<Contact>& contacts) {
+    bool has_contact = false;
+    for (auto& item_pair : _objects) {
+        has_contact = has_contact or checkCollision(item_pair.second, contacts);
+    }
+    for (auto& item_pair : _robots) {
+        has_contact = has_contact or checkCollision(item_pair.second, contacts);
+    }
+    assert((has_contact and contacts.size() > 0) or (not has_contact));
+    return has_contact;
+}
 
 bool Box2DWorld::checkCollision(LinkPtr link) {
     Box2DCollidablePtr collidable_a = castCollidable(link);
