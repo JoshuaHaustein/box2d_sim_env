@@ -10,6 +10,8 @@
 #include <random>
 #include <chrono>
 #include <memory>
+// boost includes
+#include <boost/math/constants/constants.hpp>
 // QT includes
 #include <QtGui/QVBoxLayout>
 #include <QtGui/QLabel>
