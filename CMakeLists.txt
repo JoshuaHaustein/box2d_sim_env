@@ -13,13 +13,15 @@ find_package(catkin REQUIRED
 ## System dependencies are found with CMake's conventions
 find_package(Qt4 COMPONENTS QtCore QtGui REQUIRED)
 include(${QT_USE_FILE})
-find_package(Eigen 3.3 REQUIRED)
+find_package(Eigen3 3.3 REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(Threads REQUIRED)
-#find_package(yaml-cpp REQUIRED)
+# find_package(yaml-cpp REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(YAML yaml-cpp REQUIRED)
 
 # TODO the following line shouldn't be here. BUt linking without catkin_make does not work otherwise
-link_directories("/home/joshua/projects/planning_catkin/devel/lib/")
+# link_directories("/home/joshua/projects/planning_catkin/devel/lib/")
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html
@@ -38,7 +40,7 @@ catkin_package(
         INCLUDE_DIRS include
         LIBRARIES box2d_sim_env
         CATKIN_DEPENDS box2d_catkin sim_env
-        DEPENDS Eigen yaml-cpp Boost Qt4
+        DEPENDS EIGEN3 YAML Boost 
 )
 
 ###########
@@ -75,7 +77,7 @@ set(SOURCE_FILES
 ## Your package locations should be listed before other locations
  include_directories(include
          ${sim_env_INCLUDE_DIRS}
-         ${Eigen_INCLUDE_DIRS}
+         ${Eigen3_INCLUDE_DIRS}
          ${catkin_INCLUDE_DIRS}
          ${Boost_INCLUDE_DIRS}
          ${CMAKE_BINARY_DIR})
