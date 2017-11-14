@@ -630,6 +630,9 @@ namespace sim_env{
         // Destroys all its entities
         ~Box2DWorld(); // we can ignore the warning that we are hiding enable_shared_from_this' destructor
 
+        WorldPtr clone() const override;
+        Box2DWorldPtr cloneBox2D() const;
+
         void loadWorld(const std::string &path) override;
         void loadWorld(const Box2DEnvironmentDescription& env_desc);
 
@@ -706,6 +709,7 @@ namespace sim_env{
         LinkPtr getLink(b2Body* body);
     private:
         mutable std::recursive_mutex _world_mutex;
+        Box2DEnvironmentDescription _env_desc;
         std::shared_ptr<b2World> _world;
         b2Body* _b2_ground_body;
         Box2DCollisionCheckerPtr _collision_checker;

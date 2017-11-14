@@ -1389,6 +1389,10 @@ sim_env::WorldViewer::Handle sim_env::Box2DWorldViewer::drawSphere(const Eigen::
     return _world_view->drawCircle(center, radius, color, width);
 }
 
+sim_env::WorldPtr sim_env::Box2DWorldViewer::getWorld() const {
+    return _world.lock();
+}
+
 void sim_env::Box2DWorldViewer::removeDrawing(const sim_env::WorldViewer::Handle &handle)
 {
     _world_view->removeDrawing(handle);

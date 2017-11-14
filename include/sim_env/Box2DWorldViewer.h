@@ -321,6 +321,7 @@ namespace sim_env {
                           float radius,
                           const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
                           float width=0.1f) override;
+        WorldPtr getWorld() const override;
         void removeDrawing(const Handle& handle) override;
         void removeAllDrawings() override;
         void addCustomWidget(QWidget* widget, const std::string& name);

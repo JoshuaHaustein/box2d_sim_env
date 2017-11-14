@@ -2265,6 +2265,23 @@ Box2DWorld::~Box2DWorld() {
     eraseWorld();
 }
 
+WorldPtr Box2DWorld::clone() const {
+    return cloneBox2D();
+}
+
+Box2DWorldPtr Box2DWorld::cloneBox2D() const {
+    Box2DWorldLock lock(getMutex());
+    auto world_clone = std::make_shared<Box2DWorld>();
+    world_clone->loadWorld(_env_desc);
+    world_clone->setPositionSteps(_position_steps);
+    world_clone->setVelocitySteps(_velocity_steps);
+    world_clone->setPhysicsTimeStep(_time_step);
+    WorldState world_state;
+    getWorldState(world_state);
+    world_clone->setWorldState(world_state);
+    return world_clone;
+}
+
 void Box2DWorld::loadWorld(const std::string &path) {
     Box2DWorldLock lock(getMutex());
     Box2DEnvironmentDescription env_desc = Box2DEnvironmentDescription();
@@ -2694,6 +2711,7 @@ void Box2DWorld::createGround(const Eigen::Vector4f &world_bounds) {
 
 void Box2DWorld::createWorld(const Box2DEnvironmentDescription &env_desc) {
     Box2DWorldLock lock(getMutex());
+    _env_desc = env_desc;
     _world.reset(new b2World(b2Vec2(0.0, 0.0)));
     _scale = env_desc.scale;
     // Get the dimension of the ground plane
