@@ -26,6 +26,16 @@ typedef std::lock_guard<std::recursive_mutex> Box2DWorldLock;
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DLink members *////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
+Box2DLink::Box2DBodyUserData::Box2DBodyUserData(const std::string& lname, const std::string& oname) :
+    link_name(lname), object_name(oname)
+{
+}
+
+Box2DLink::Box2DBodyUserData::~Box2DBodyUserData() = default;
+
+////////////////////////////////////////////////////////////////////////////////
+/////////////////////* Definition of Box2DLink members *////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world,
                      bool is_static, const std::string& object_name):
     _destroyed(false) {
@@ -40,6 +50,7 @@ Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world,
     body_def.allowSleep = true;
     body_def.awake = true;
     body_def.type = is_static ? b2_staticBody : b2_dynamicBody;
+    body_def.userData = new Box2DBodyUserData(_name, _object_name);
     _body = box2d_world->CreateBody(&body_def);
     // run over polygons and create Box2D shape definitions + compute area
     float area = 0.0f;
@@ -110,6 +121,9 @@ Box2DLink::~Box2DLink() {
 void Box2DLink::destroy(const std::shared_ptr<b2World>& b2world) {
 //    sim_env::DefaultLogger::getInstance()->logDebug("Destroying Box2DLink", "[sim_env::Box2DLink::destroy]");
     b2world->DestroyJoint(_friction_joint);
+    auto* user_data = static_cast<Box2DBodyUserData*>(_body->GetUserData());
+    _body->SetUserData(nullptr);
+    delete user_data;
     b2world->DestroyBody(_body);
     _destroyed = true;
 }
@@ -2251,6 +2265,23 @@ Box2DWorldPtr Box2DCollisionChecker::getWorld() {
 void Box2DCollisionChecker::invalidateCache() {
     _cache_invalid = true;
 }
+////////////////////////////////////////////////////////////////////////////////
+/////////////////////* Definition of Box2DAABBQuerier members */////////////////
+////////////////////////////////////////////////////////////////////////////////
+struct Box2DAABBQuery : public b2QueryCallback {
+    std::vector<std::string> query_result;
+    b2Transform query_transform;
+    b2PolygonShape query_box;
+    bool ReportFixture(b2Fixture* fixture) {
+        auto body = fixture->GetBody();
+        if (not b2TestOverlap(&query_box, 0, fixture->GetShape(), 0, query_transform, body->GetTransform())) {
+            return true;
+        }
+        auto user_data = static_cast<Box2DLink::Box2DBodyUserData*>(body->GetUserData());
+        query_result.push_back(user_data->object_name);
+        return true;
+    }
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DWorld members *///////////////////////
@@ -2393,6 +2424,46 @@ void Box2DWorld::getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_r
     }
     for (auto &obj_map_iter : _objects) {
         objects.push_back(obj_map_iter.second);
+    }
+}
+
+void Box2DWorld::getObjects(const BoundingBox& aabb, std::vector<ObjectPtr>& objects, bool exclude_robots)
+{
+    b2AABB query_aabb;
+    query_aabb.lowerBound.x = getScale() * aabb.min_corner[0];
+    query_aabb.lowerBound.y = getScale() * aabb.min_corner[1];
+    query_aabb.upperBound.x = getScale() * aabb.max_corner[0];
+    query_aabb.upperBound.y = getScale() * aabb.max_corner[1];
+
+    Box2DAABBQuery aabb_query;
+    auto extents = query_aabb.GetExtents();
+    aabb_query.query_box.SetAsBox(extents.x, extents.y);
+    aabb_query.query_transform.Set(query_aabb.GetCenter(), 0.0f);
+    _world->QueryAABB(&aabb_query, query_aabb);
+    for (auto& name : aabb_query.query_result) {
+        auto object = getObject(name, exclude_robots);
+        assert(object);
+        objects.push_back(object);
+    }
+}
+
+void Box2DWorld::getObjects(const BoundingBox& aabb, std::vector<ObjectConstPtr>& objects, bool exclude_robots) const
+{
+    b2AABB query_aabb;
+    query_aabb.lowerBound.x = getScale() * aabb.min_corner[0];
+    query_aabb.lowerBound.y = getScale() * aabb.min_corner[1];
+    query_aabb.upperBound.x = getScale() * aabb.max_corner[0];
+    query_aabb.upperBound.y = getScale() * aabb.max_corner[1];
+
+    Box2DAABBQuery aabb_query;
+    auto extents = query_aabb.GetExtents();
+    aabb_query.query_box.SetAsBox(extents.x, extents.y);
+    aabb_query.query_transform.Set(query_aabb.GetCenter(), 0.0f);
+    _world->QueryAABB(&aabb_query, query_aabb);
+    for (auto& name : aabb_query.query_result) {
+        auto object = getObjectConst(name, exclude_robots);
+        assert(object);
+        objects.push_back(object);
     }
 }
 

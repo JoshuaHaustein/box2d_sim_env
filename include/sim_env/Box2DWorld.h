@@ -96,8 +96,15 @@ namespace sim_env{
         friend class Box2DObject;
         friend class Box2DRobot;
     public:
+        struct Box2DBodyUserData {
+            const std::string& link_name;
+            const std::string& object_name;
+            Box2DBodyUserData(const std::string& lname, const std::string& oname);
+            ~Box2DBodyUserData();
+        };
+
         /**
-         * A link can only be instantiated by an Box2DObject.
+         * A link can only be instantiated by a Box2DObject.
          */
         Box2DLink() = delete;
         Box2DLink(const Box2DLink& link) = delete;
@@ -649,6 +656,10 @@ namespace sim_env{
         Box2DObjectConstPtr getBox2DObjectConst(const std::string& name) const;
         void getObjects(std::vector<ObjectPtr> &objects, bool exclude_robots) override;
         void getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_robots) const override;
+
+        void getObjects(const BoundingBox& aabb, std::vector<ObjectPtr>& objects, bool exclude_robots) override;
+        void getObjects(const BoundingBox& aabb, std::vector<ObjectConstPtr>& objects,
+                        bool exclude_robots=true) const override;
 
         void stepPhysics(int steps) override;
         void stepPhysics(int steps, bool execute_controller, bool allow_sleeping);
