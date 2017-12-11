@@ -3,6 +3,7 @@
 //
 #include <vector>
 #include <map>
+#include <unordered_set>
 #include <exception>
 #include "sim_env/Box2DWorld.h"
 #include "sim_env/Box2DWorldViewer.h"
@@ -26,8 +27,8 @@ typedef std::lock_guard<std::recursive_mutex> Box2DWorldLock;
 ////////////////////////////////////////////////////////////////////////////////
 /////////////////////* Definition of Box2DLink members *////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
-Box2DLink::Box2DBodyUserData::Box2DBodyUserData(const std::string& lname, const std::string& oname) :
-    link_name(lname), object_name(oname)
+Box2DLink::Box2DBodyUserData::Box2DBodyUserData(const std::string& lname, const std::string& oname, bool collision_ignore) :
+    link_name(lname), object_name(oname), b_collision_ignore(collision_ignore)
 {
 }
 
@@ -134,10 +135,14 @@ std::string Box2DLink::getName() const {
 
 void Box2DLink::setName(const std::string &name) {
     _name = name;
+    auto user_data = static_cast<Box2DBodyUserData*>(_body->GetUserData());
+    user_data->link_name = name;
 }
 
 void Box2DLink::setObjectName(const std::string& name) {
     _object_name = name;
+    auto user_data = static_cast<Box2DBodyUserData*>(_body->GetUserData());
+    user_data->object_name = name;
 }
 
 EntityType Box2DLink::getType() const {
@@ -2269,16 +2274,21 @@ void Box2DCollisionChecker::invalidateCache() {
 /////////////////////* Definition of Box2DAABBQuerier members */////////////////
 ////////////////////////////////////////////////////////////////////////////////
 struct Box2DAABBQuery : public b2QueryCallback {
-    std::vector<std::string> query_result;
+    std::unordered_set<std::string> object_hits;
+    std::unordered_set<std::string> link_hits;
     b2Transform query_transform;
     b2PolygonShape query_box;
     bool ReportFixture(b2Fixture* fixture) {
         auto body = fixture->GetBody();
+        auto user_data = static_cast<Box2DLink::Box2DBodyUserData*>(body->GetUserData());
+        if (user_data->b_collision_ignore) { // bodies like ground body that are not to be considered
+            return true;
+        }
         if (not b2TestOverlap(&query_box, 0, fixture->GetShape(), 0, query_transform, body->GetTransform())) {
             return true;
         }
-        auto user_data = static_cast<Box2DLink::Box2DBodyUserData*>(body->GetUserData());
-        query_result.push_back(user_data->object_name);
+        object_hits.insert(user_data->object_name);
+        link_hits.insert(user_data->link_name);
         return true;
     }
 };
@@ -2365,6 +2375,11 @@ void Box2DWorld::getRobots(std::vector<RobotConstPtr> &robots) const {
     }
 }
 
+bool Box2DWorld::isRobot(const std::string& name) const {
+    Box2DWorldLock lock(getMutex());
+    return _robots.count(name) > 0;
+}
+
 ObjectPtr Box2DWorld::getObject(const std::string &name, bool exclude_robots) {
     Box2DWorldLock lock(getMutex());
     ObjectPtr object = getBox2DObject(name);
@@ -2429,6 +2444,7 @@ void Box2DWorld::getObjects(std::vector<ObjectConstPtr> &objects, bool exclude_r
 
 void Box2DWorld::getObjects(const BoundingBox& aabb, std::vector<ObjectPtr>& objects, bool exclude_robots)
 {
+    Box2DWorldLock lock(getMutex());
     b2AABB query_aabb;
     query_aabb.lowerBound.x = getScale() * aabb.min_corner[0];
     query_aabb.lowerBound.y = getScale() * aabb.min_corner[1];
@@ -2440,7 +2456,10 @@ void Box2DWorld::getObjects(const BoundingBox& aabb, std::vector<ObjectPtr>& obj
     aabb_query.query_box.SetAsBox(extents.x, extents.y);
     aabb_query.query_transform.Set(query_aabb.GetCenter(), 0.0f);
     _world->QueryAABB(&aabb_query, query_aabb);
-    for (auto& name : aabb_query.query_result) {
+    for (auto& name : aabb_query.object_hits) {
+        if (isRobot(name) and exclude_robots) {
+            continue;
+        }
         auto object = getObject(name, exclude_robots);
         assert(object);
         objects.push_back(object);
@@ -2449,6 +2468,8 @@ void Box2DWorld::getObjects(const BoundingBox& aabb, std::vector<ObjectPtr>& obj
 
 void Box2DWorld::getObjects(const BoundingBox& aabb, std::vector<ObjectConstPtr>& objects, bool exclude_robots) const
 {
+
+    Box2DWorldLock lock(getMutex());
     b2AABB query_aabb;
     query_aabb.lowerBound.x = getScale() * aabb.min_corner[0];
     query_aabb.lowerBound.y = getScale() * aabb.min_corner[1];
@@ -2460,7 +2481,10 @@ void Box2DWorld::getObjects(const BoundingBox& aabb, std::vector<ObjectConstPtr>
     aabb_query.query_box.SetAsBox(extents.x, extents.y);
     aabb_query.query_transform.Set(query_aabb.GetCenter(), 0.0f);
     _world->QueryAABB(&aabb_query, query_aabb);
-    for (auto& name : aabb_query.query_result) {
+    for (auto& name : aabb_query.object_hits) {
+        if (isRobot(name) and exclude_robots) {
+            continue;
+        }
         auto object = getObjectConst(name, exclude_robots);
         assert(object);
         objects.push_back(object);
@@ -2771,6 +2795,7 @@ void Box2DWorld::createGround(const Eigen::Vector4f &world_bounds) {
     ground_body_def.type = b2_staticBody;
     ground_body_def.position.Set(0.5f * _scale * (world_bounds[0] + world_bounds[2]),
                                  0.5f * _scale * (world_bounds[1] + world_bounds[3]));
+    ground_body_def.userData = new Box2DLink::Box2DBodyUserData("GROUND_BODY", "GROUND_BODY", true);
     _b2_ground_body = _world->CreateBody(&ground_body_def);
     b2FixtureDef fd;
     b2PolygonShape ground_shape;

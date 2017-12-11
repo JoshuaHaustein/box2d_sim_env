@@ -97,9 +97,10 @@ namespace sim_env{
         friend class Box2DRobot;
     public:
         struct Box2DBodyUserData {
-            const std::string& link_name;
-            const std::string& object_name;
-            Box2DBodyUserData(const std::string& lname, const std::string& oname);
+            std::string link_name;
+            std::string object_name;
+            bool b_collision_ignore;
+            Box2DBodyUserData(const std::string& lname, const std::string& oname, bool collision_ignore=false);
             ~Box2DBodyUserData();
         };
 
@@ -649,6 +650,7 @@ namespace sim_env{
         Box2DRobotConstPtr getBox2DRobotConst(const std::string& name) const;
         void getRobots(std::vector<RobotPtr> &robots) override;
         void getRobots(std::vector<RobotConstPtr> &robots) const override;
+        bool isRobot(const std::string& name) const;
 
         ObjectPtr getObject(const std::string &name, bool exclude_robots) override;
         ObjectConstPtr getObjectConst(const std::string &name, bool exclude_robots) const override;
