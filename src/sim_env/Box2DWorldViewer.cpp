@@ -1125,9 +1125,68 @@ sim_env::WorldViewer::Handle sim_env::viewer::Box2DWorldView::drawCircle(const E
     return addDrawing(circle);
 }
 
+sim_env::WorldViewer::Handle sim_env::viewer::Box2DWorldView::drawVoxelGrid(
+    const grid::VoxelGrid<float, Eigen::Vector4f>& grid,
+    const sim_env::WorldViewer::Handle& old_handle)
+{
+    static const std::string log_prefix("[sim_env::viewer::Box2DWorldView::drawVoxelGrid]");
+    auto logger = getLogger();
+    if (grid.getZSize() != 1) {
+        throw std::logic_error(log_prefix + "Received voxel grid with size in z that is larger than 1, which is not supported for Box2DViewer.");
+    }
+    std::lock_guard<std::recursive_mutex> lock(_mutex_modify_graphics_items);
+    sim_env::WorldViewer::Handle return_handle(old_handle);
+    QGraphicsPixmapItem* pixmap_item(nullptr);
+    // Let's check whether we have an old pixmap item that we can reuse
+    auto drawings_iter = _drawings.find(old_handle.getID());
+    if (drawings_iter != _drawings.end()) {
+        pixmap_item = dynamic_cast<QGraphicsPixmapItem*>(drawings_iter->second);
+        if (!pixmap_item) {
+            logger->logErr("Could not reuse QGraphicsPixmapItem, because the provided handle refers to a different type of QGraphicsItem",
+                            log_prefix);
+        }
+        if (pixmap_item->pixmap().width() != grid.getXSize()
+            or pixmap_item->pixmap().height() != grid.getYSize()) {
+            throw std::runtime_error(log_prefix + "The dimensions of the provided voxel grid and the previously stored pixmap are incompatible.");
+        }
+    }
+    if (!pixmap_item) { // if we don't have a pixmap, create a new one
+        QImage image(grid.getXSize(), grid.getYSize(), QImage::Format::Format_ARGB32);
+        pixmap_item = new QGraphicsPixmapItem(QPixmap::fromImage(image));
+        return_handle = addDrawing(pixmap_item);
+    }
+    // now do the actual drawing
+    assert(pixmap_item);
+    // QImage image = pixmap_item->pixmap().toImage();
+    QImage image(grid.getXSize(), grid.getYSize(), QImage::Format::Format_ARGB32);
+    auto index_gen = grid.getIndexGenerator();
+    while (index_gen.hasNext()) { // run over the whole grid
+        auto idx = index_gen.next();
+        Eigen::Vector4f color_value = grid(idx);
+        color_value *= 255;
+        auto qt_color_value = qRgba((int)(color_value[0]), (int)(color_value[1]),
+                                    (int)(color_value[2]), (int)(color_value[3]));
+        image.setPixel(idx.ix, idx.iy, qt_color_value);
+    }
+    pixmap_item->setPixmap(QPixmap::fromImage(image));
+    auto grid_tf = grid.getTransform();
+    auto tf_matrix = grid_tf.matrix();
+    QTransform qt_transform(tf_matrix(0, 0), tf_matrix(1, 0),
+                            tf_matrix(0, 1), tf_matrix(1, 1),
+                            tf_matrix(0, 3), tf_matrix(1, 3));
+    pixmap_item->setTransform(qt_transform);
+    Eigen::Vector3f min_point;
+    Eigen::Vector3f max_point;
+    grid.getBoundingBox(min_point, max_point);
+    float scale_inv = 1.0f / grid.getCellSize();
+    pixmap_item->setOffset(QPointF(scale_inv * min_point[0], scale_inv * min_point[1]));
+    pixmap_item->setScale(grid.getCellSize());
+    return return_handle;
+}
+
 void sim_env::viewer::Box2DWorldView::removeDrawing(const WorldViewer::Handle& handle)
 {
-    std::lock_guard<std::recursive_mutex> lock(_mutex_to_remove);
+    std::lock_guard<std::recursive_mutex> lock(_mutex_modify_graphics_items);
     auto iter = _drawings.find(handle.getID());
     if (iter != _drawings.end()) {
         _items_to_remove.push(iter->second);
@@ -1140,7 +1199,7 @@ void sim_env::viewer::Box2DWorldView::removeDrawing(const WorldViewer::Handle& h
 }
 
 void sim_env::viewer::Box2DWorldView::removeAllDrawings() {
-    std::lock_guard<std::recursive_mutex> lock(_mutex_to_remove);
+    std::lock_guard<std::recursive_mutex> lock(_mutex_modify_graphics_items);
     for (auto& entry : _drawings) {
         _items_to_remove.push(entry.second);
     }
@@ -1206,22 +1265,17 @@ void sim_env::viewer::Box2DWorldView::refreshView() {
 //    auto logger = DefaultLogger::getInstance();
 //    logger->logDebug("REFRESHING WORLD VIEW");
     // first add new items to the scene if we have any
-    {
-        std::lock_guard<std::recursive_mutex> add_lock(_mutex_to_add);
-        while (not _items_to_add.empty()) {
-            _scene->addItem(_items_to_add.front());
-            _items_to_add.pop();
-        }
+    std::lock_guard<std::recursive_mutex> lock(_mutex_modify_graphics_items);
+    while (not _items_to_add.empty()) {
+        _scene->addItem(_items_to_add.front());
+        _items_to_add.pop();
     }
     // next remove items from the scene if there were requests
-    {
-        std::lock_guard<std::recursive_mutex> rm_lock(_mutex_to_remove);
-        while (not _items_to_remove.empty()) {
-            QGraphicsItem* item = _items_to_remove.front();
-            _scene->removeItem(item);
-            delete item;
-            _items_to_remove.pop();
-        }
+    while (not _items_to_remove.empty()) {
+        QGraphicsItem* item = _items_to_remove.front();
+        _scene->removeItem(item);
+        delete item;
+        _items_to_remove.pop();
     }
     _scene->update();
     update();
@@ -1245,7 +1299,7 @@ void sim_env::viewer::Box2DWorldView::scaleView(double scale_factor) {
 
 sim_env::WorldViewer::Handle sim_env::viewer::Box2DWorldView::addDrawing(QGraphicsItem* item) {
     sim_env::WorldViewer::Handle handle;
-    std::lock_guard<std::recursive_mutex> lock(_mutex_to_add);
+    std::lock_guard<std::recursive_mutex> rm_lock(_mutex_modify_graphics_items);
     // force drawings to be in the back
     item->setZValue(-1.0);
     _items_to_add.push(item);
@@ -1387,6 +1441,12 @@ sim_env::WorldViewer::Handle sim_env::Box2DWorldViewer::drawSphere(const Eigen::
                                                                    const Eigen::Vector4f& color,
                                                                    float width) {
     return _world_view->drawCircle(center, radius, color, width);
+}
+
+sim_env::WorldViewer::Handle sim_env::Box2DWorldViewer::drawVoxelGrid(const grid::VoxelGrid<float, Eigen::Vector4f>& grid,
+        const WorldViewer::Handle& old_handle)
+{
+    return _world_view->drawVoxelGrid(grid, old_handle);
 }
 
 sim_env::WorldPtr sim_env::Box2DWorldViewer::getWorld() const {

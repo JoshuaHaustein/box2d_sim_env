@@ -229,6 +229,13 @@ namespace sim_env {
                                            float radius,
                                            const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
                                            float width=0.1f);
+            /**
+             * Draws the given voxel grid. Since Box2D is 2d, the visualization is 2D as well, hence
+             * only grids with size of 1 in z are supported. If the given grid has size != 1, a logic
+             * error is thrown.
+             */
+            WorldViewer::Handle drawVoxelGrid(const grid::VoxelGrid<float, Eigen::Vector4f>& grid,
+                                              const WorldViewer::Handle& old_handle);
             void removeDrawing(const WorldViewer::Handle& handle);
             void removeAllDrawings();
             QSize sizeHint() const override;
@@ -259,9 +266,8 @@ namespace sim_env {
             std::map<std::string, Box2DRobotView *> _robot_views;
             std::map<unsigned int, QGraphicsItem*> _drawings;
             // The following members are required to ensure we only add/remove QGraphicsItem in the main thread.
-            std::recursive_mutex _mutex_to_add;
+            std::recursive_mutex _mutex_modify_graphics_items;
             std::queue<QGraphicsItem*> _items_to_add;
-            std::recursive_mutex _mutex_to_remove;
             std::queue<QGraphicsItem*> _items_to_remove;
         };
 
@@ -321,6 +327,13 @@ namespace sim_env {
                           float radius,
                           const Eigen::Vector4f& color=Eigen::Vector4f(0.0f, 0.0f, 0.0f, 1.0f),
                           float width=0.1f) override;
+        /**
+         * Draws the given voxel grid. Since Box2D is 2d, the visualization is 2D as well, hence
+         * only grids with size of 1 in z are supported. If the given grid has size != 1, a logic
+         * error is thrown.
+         */
+        Handle drawVoxelGrid(const grid::VoxelGrid<float, Eigen::Vector4f>& grid,
+                             const WorldViewer::Handle& old_handle) override;
         WorldPtr getWorld() const override;
         void removeDrawing(const Handle& handle) override;
         void removeAllDrawings() override;
