@@ -149,6 +149,8 @@ namespace sim_env{
         float getGroundFriction() const override;
         void setMass(float mass) override;
         void setGroundFriction(float coeff) override;
+        void getCenterOfMass(Eigen::Vector3f& com) const override;
+        void getLocalCenterOfMass(Eigen::Vector3f& com) const override;
         // Box2D specific
         Eigen::Vector2f getCenterOfMass() const;
         void getCenterOfMass(Eigen::Vector2f& com) const;
@@ -738,6 +740,7 @@ namespace sim_env{
         WorldViewerPtr _world_viewer;
 
         void eraseWorld();
+        void deleteGroundBody();
         void createWorld(const Box2DEnvironmentDescription& env_desc);
         void createNewRobot(const Box2DRobotDescription& robot_desc);
         void createNewObject(const Box2DObjectDescription& object_desc);

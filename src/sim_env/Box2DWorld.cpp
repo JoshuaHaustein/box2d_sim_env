@@ -405,6 +405,24 @@ float Box2DLink::getInertia() const {
     return  inv_scale * inv_scale * _body->GetInertia();
 }
 
+void Box2DLink::getCenterOfMass(Eigen::Vector3f& com) const {
+    Eigen::Vector2f com2;
+    getCenterOfMass(com2);
+    com[0] = com2[0];
+    com[1] = com2[1];
+    com[2] = 0.0f;
+}
+
+void Box2DLink::getLocalCenterOfMass(Eigen::Vector3f& com) const {
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
+    auto b2center = _body->GetLocalCenter() - _local_origin_offset;
+    float scale = world->getInverseScale();
+    com[0] = b2center.x * scale;
+    com[1] = b2center.y * scale;
+    com[2] = 0.0f;
+}
+
 Eigen::Vector2f Box2DLink::getCenterOfMass() const {
     Eigen::Vector2f com;
     getCenterOfMass(com);
@@ -472,7 +490,6 @@ void Box2DLink::setOriginToCenterOfMass() {
                                     "[sim_env::Box2DLink::setOriginToCenterOfMass]");
     }
     _local_origin_offset = _body->GetLocalCenter();
-
 }
 
 bool Box2DLink::checkCollision() {
@@ -994,7 +1011,11 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
         _local_bounding_box.merge(link->getLocalBoundingBox());
     }
     _base_link = _links[obj_desc.base_link];
+    Eigen::Vector3f old_center;
+    _base_link->getLocalCenterOfMass(old_center);
     _base_link->setOriginToCenterOfMass();
+    _local_bounding_box.min_corner -= old_center;
+    _local_bounding_box.max_corner -= old_center;
 
     unsigned int base_dofs = _is_static ? 0 : 3;
     // next create joints
@@ -2743,26 +2764,36 @@ LinkPtr Box2DWorld::getLink(b2Body *body) {
 }
 ////////////////////////////// PRIVATE FUNCTIONS //////////////////////////////
 void Box2DWorld::eraseWorld() {
-//    DefaultLogger::getInstance()->logDebug("Erasing world", "[sim_env::Box2DWorld::eraseWorld]");
+    if (!_world) { // if there is no world, there shouldn't be anything else
+        assert(_robots.empty());
+        assert(_objects.empty());
+        assert(!_b2_ground_body);
+        assert(!_collision_checker);
+        return;
+    }
     Box2DWorldLock lock(_world_mutex);
     for (auto& robot_iter : _robots) {
-//        DefaultLogger::getInstance()->logDebug("Erasing a robot", "[sim_env::Box2DWorld::eraseWorld]");
         robot_iter.second->destroy(_world);
     }
     _robots.clear();
     for (auto& object_iter : _objects) {
-//        DefaultLogger::getInstance()->logDebug("Erasing an object", "[sim_env::Box2DWorld::eraseWorld]");
         object_iter.second->destroy(_world);
     }
     _objects.clear();
-    if (_b2_ground_body) {
-//        DefaultLogger::getInstance()->logDebug("Deleting ground", "[sim_env::Box2DWorld::eraseWorld]");
-        _world->DestroyBody(_b2_ground_body);
-        _b2_ground_body = nullptr;
-    }
+    deleteGroundBody();
     _world.reset();
     _collision_checker.reset();
     _scale = 1.0;
+}
+
+void Box2DWorld::deleteGroundBody() {
+    assert(_world);
+    if (_b2_ground_body) {
+        auto user_data = static_cast<Box2DLink::Box2DBodyUserData*>(_b2_ground_body->GetUserData());
+        delete user_data;
+        _world->DestroyBody(_b2_ground_body);
+        _b2_ground_body = nullptr;
+    }
 }
 
 void Box2DWorld::createNewObject(const Box2DObjectDescription &object_desc) {
@@ -2787,8 +2818,7 @@ void Box2DWorld::createNewRobot(const Box2DRobotDescription &robot_desc) {
 
 void Box2DWorld::createGround(const Eigen::Vector4f &world_bounds) {
     if (_b2_ground_body) {
-        _world->DestroyBody(_b2_ground_body);
-        _b2_ground_body = nullptr;
+        deleteGroundBody();
     }
     // Create ground body
     b2BodyDef ground_body_def;
