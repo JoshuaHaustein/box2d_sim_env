@@ -120,6 +120,12 @@ namespace sim_env{
         bool checkCollision(const std::vector<ObjectPtr> &other_objects) override;
         bool checkCollision(const std::vector<ObjectPtr> &other_objects, std::vector<Contact> &contacts) override;
 
+        void getBallApproximation(std::vector<Ball>& balls) const override;
+        unsigned int getNumApproximationBalls() const;
+        void getLocalBallApproximation(std::vector<Ball>& balls) const override;
+        void updateBallApproximation(std::vector<Ball>& balls,
+                                     std::vector<Ball>::iterator& start,
+                                     std::vector<Ball>::iterator& end) const override;
         std::string getName() const override;
         EntityType getType() const override;
 
@@ -199,6 +205,7 @@ namespace sim_env{
         std::string _name;
         std::string _object_name;
         std::vector<Box2DJointWeakPtr> _child_joints;
+        std::vector<Ball> _balls;
         Box2DJointWeakPtr _parent_joint;
         BoundingBox _local_aabb;
         std::vector< boost::geometry::model::polygon <boost::geometry::model::d2::point_xy<float>, false> > _boost_polygons;
@@ -358,7 +365,8 @@ namespace sim_env{
         bool atRest(float threshold=0.0001f) const override;
 
         bool isStatic() const override;
-
+        // ball approximation
+        void getBallApproximation(std::vector<Ball>& balls) const override;
         void getLinks(std::vector<LinkPtr>& links) override;
         void getLinks(std::vector<LinkConstPtr>& links) const override;
         LinkPtr getLink(const std::string &link_name) override;
@@ -423,6 +431,7 @@ namespace sim_env{
         Eigen::VectorXi _active_dof_indices;
         Eigen::VectorXi _all_dof_indices;
         unsigned int _num_dofs;
+        unsigned int _num_balls;
         std::map<std::string, Box2DLinkPtr> _links; // the object is responsible for the lifetime of its links
         Box2DLinkPtr _base_link;
         std::map<std::string, Box2DJointPtr> _joints; // the object is responsible for the lifetime of its links
@@ -477,6 +486,8 @@ namespace sim_env{
         bool checkCollision(ObjectPtr other_object, std::vector<Contact>& contacts) override;
         bool checkCollision(const std::vector<ObjectPtr> &other_objects) override;
         bool checkCollision(const std::vector<ObjectPtr> &other_objects, std::vector<Contact> &contacts) override;
+        // ball approximation
+        void getBallApproximation(std::vector<Ball>& balls) const override;
         // links
         void getLinks(std::vector<LinkPtr>& links) override;
         void getLinks(std::vector<LinkConstPtr>& links) const override;
@@ -711,9 +722,16 @@ namespace sim_env{
         void printWorldState(Logger::LogLevel level) const override;
 
         // Box2D specific
-        float getScale() const;
-        float getInverseScale() const;
-        float getGravity() const;
+        inline float getScale() const {
+            return _scale;
+        }
+        inline float getInverseScale() const {
+            assert(_scale > 0.0f);
+            return 1.0f / _scale;
+        }
+        inline float getGravity() const {
+            return GRAVITY * getScale();
+        }
         Eigen::Vector4f getWorldBounds() const;
         void invalidateCollisionCache();
         void setToRest();

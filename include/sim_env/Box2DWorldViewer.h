@@ -39,15 +39,17 @@ namespace sim_env {
         public:
             Box2DLinkView(Box2DLinkConstPtr link, QGraphicsItem *parent = 0);
             QRectF boundingRect() const override;
-            void setColors(const QColor& fill_color, const QColor& border_color);
+            void setColors(const QColor& fill_color, const QColor& border_color, const QColor& ball_color);
             void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
         protected:
             Box2DLinkConstWeakPtr _link;
         private:
             std::vector<QPolygonF> _polygons;
+            std::vector<sim_env::Ball> _balls;
             QRectF _bounding_rect;
             QColor _border_color;
             QColor _fill_color;
+            QColor _ball_color;
         };
 
         class Box2DObjectView : public QGraphicsItem {

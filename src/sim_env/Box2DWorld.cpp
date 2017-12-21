@@ -4,6 +4,7 @@
 #include <vector>
 #include <map>
 #include <unordered_set>
+#include <cmath>
 #include <exception>
 #include "sim_env/Box2DWorld.h"
 #include "sim_env/Box2DWorldViewer.h"
@@ -45,6 +46,10 @@ Box2DLink::Box2DLink(const Box2DLinkDescription &link_desc, Box2DWorldPtr world,
     _world = world;
     _object_name = object_name;
     _local_origin_offset = b2Vec2(0.0f, 0.0f);
+    // save ball approximation
+    for (auto& pair_ball : link_desc.balls) {
+        _balls.emplace_back(Ball(pair_ball.first, pair_ball.second));
+    }
     // Create Box2D body
     std::shared_ptr<b2World> box2d_world = world->getRawBox2DWorld();
     b2BodyDef body_def;
@@ -155,10 +160,18 @@ Eigen::Affine3f Box2DLink::getTransform() const {
     b2Vec2 pos = _body->GetWorldPoint(_local_origin_offset);
     float orientation = _body->GetAngle();
     Eigen::Affine3f transform;
-    transform = Eigen::Translation3f(world->getInverseScale() * pos.x,
-                                   world->getInverseScale() * pos.y,
-                                   0.0);
-    transform.rotate(Eigen::AngleAxisf(orientation, Eigen::Vector3f::UnitZ()));
+    transform.setIdentity();
+    auto& matrix = transform.matrix();
+    matrix(0, 0) = cos(orientation);
+    matrix(0, 1) = -sin(orientation);
+    matrix(1, 0) = -matrix(0, 1);
+    matrix(1, 1) = matrix(0, 0);
+    matrix(0, 3) = world->getInverseScale() * pos.x;
+    matrix(1, 3) = world->getInverseScale() * pos.y;
+    // transform = Eigen::Translation3f(world->getInverseScale() * pos.x,
+    //                                world->getInverseScale() * pos.y,
+    //                                0.0);
+    // transform.rotate(Eigen::AngleAxisf(orientation, Eigen::Vector3f::UnitZ()));
     return transform;
 }
 
@@ -253,7 +266,7 @@ void Box2DLink::getGeometry(std::vector<std::vector<Eigen::Vector2f> > &geometry
             b2PolygonShape* polygon_shape = static_cast<b2PolygonShape*>(shape);
             for (int32 v = 0; v < polygon_shape->GetVertexCount(); ++v) {
                 b2Vec2 point = polygon_shape->GetVertex(v) - _local_origin_offset;
-                Eigen::Vector2f eigen_point(point.x, point.y);
+                Eigen::Vector2f eigen_point(world->getInverseScale() * point.x, world->getInverseScale() * point.y);
                 polygon.push_back(eigen_point);
             }
             geometry.push_back(polygon);
@@ -520,6 +533,45 @@ bool Box2DLink::checkCollision(const std::vector<ObjectPtr> &other_objects) {
 bool Box2DLink::checkCollision(const std::vector<ObjectPtr> &other_objects, std::vector<Contact> &contacts) {
     Box2DWorldPtr world = getBox2DWorld();
     return world->checkCollision(shared_from_this(), other_objects, contacts);
+}
+
+void Box2DLink::getBallApproximation(std::vector<Ball>& balls) const
+{
+    balls.reserve(balls.size() + _balls.size());
+    Ball tmp_ball;
+    auto tf = getTransform();
+    for (auto& ball : _balls) {
+        tmp_ball.radius = ball.radius;
+        tmp_ball.center = tf * ball.center;
+        balls.push_back(tmp_ball);
+    }
+}
+
+unsigned int Box2DLink::getNumApproximationBalls() const {
+    return _balls.size();
+}
+
+void Box2DLink::getLocalBallApproximation(std::vector<Ball>& balls) const
+{
+    balls.reserve(balls.size() + _balls.size());
+    balls.insert(balls.end(), _balls.begin(), _balls.end());
+}
+
+void Box2DLink::updateBallApproximation(std::vector<Ball>& balls,
+                                        std::vector<Ball>::iterator& start,
+                                        std::vector<Ball>::iterator& end) const
+{
+    auto my_balls_iter = _balls.begin();
+    size_t num_balls_updated = 0;
+    auto tf = getTransform();
+    while (start != end and my_balls_iter != _balls.end())  {
+        start->radius = my_balls_iter->radius;
+        start->center = tf * my_balls_iter->center;
+        ++start;
+        ++my_balls_iter;
+        ++num_balls_updated;
+    }
+    assert(num_balls_updated == _balls.size());
 }
 
 LinkPtr Box2DLink::getLink(b2Body *body) {
@@ -1009,6 +1061,7 @@ Box2DObject::Box2DObject(const Box2DObjectDescription &obj_desc, Box2DWorldPtr w
         _links[link->getName()] = link;
         _mass += link->getMass();
         _local_bounding_box.merge(link->getLocalBoundingBox());
+        _num_balls += link->getNumApproximationBalls();
     }
     _base_link = _links[obj_desc.base_link];
     Eigen::Vector3f old_center;
@@ -1264,30 +1317,38 @@ void Box2DObject::setDOFPositions(const Eigen::VectorXf &values, const Eigen::Ve
     auto world = getBox2DWorld();
     Box2DWorldLock lock(world->getMutex());
     // first figure out what dofs to set positions for
-    Eigen::VectorXi dofs_to_set = indices;
+    Eigen::VectorXi dofs_to_set(indices);
     if (dofs_to_set.size() == 0) {
         dofs_to_set = _active_dof_indices;
     }
     // TODO do we need to be sure these are sorted? Yes, they have to, but don't wanna do this check all the time
-    if (dofs_to_set.size() != values.size()) {
-        throw std::runtime_error("[sim_env::Box2DObject::setDOFPositions] Could not set DOF positions."
-                                         " Number of indices to set and number of provided values"
-                                         " do not match.");
-    }
+    assert(dofs_to_set.size() == values.size());
+    // if (dofs_to_set.size() != values.size()) {
+    //     throw std::runtime_error("[sim_env::Box2DObject::setDOFPositions] Could not set DOF positions."
+    //                                      " Number of indices to set and number of provided values"
+    //                                      " do not match.");
+    // }
     // we need to save the dof velocities before resetting positions
     Eigen::VectorXf velocities = getDOFVelocities(_all_dof_indices);
-    // update positions
-    for (unsigned int i = 0; i < dofs_to_set.size(); ++i) {
-        int dof = dofs_to_set[i];
-        if (dof < 3 && not _is_static) {
-            Eigen::Vector3f current_pose;
-            _base_link->getPose(current_pose);
-            current_pose[dof] = values[i];
-            _base_link->setPose(current_pose);
-        } else {
-            int joint_index = _is_static ? dof : dof - 3;
-            _sorted_joints[joint_index]->resetPosition(values[i], false);
+    // treat base pose separately
+    unsigned int dof_offset = 0;
+    Eigen::Vector3f current_pose;
+    _base_link->getPose(current_pose);
+    for (unsigned int i = 0; i < std::min(getNumBaseDOFs(), (unsigned int)dofs_to_set.size()); ++i) { // run over the first three dof indices
+        unsigned int dof_idx = dofs_to_set[i];
+        if (dof_idx < getNumBaseDOFs()) { // if this is a base dof, update pose
+            ++dof_offset;
+            current_pose[dof_idx] = values[i];
+        } else { // else we can quit this loop
+            break; // we assume that dofs_to_set are sorted in an ascending order
         }
+    }
+    if (dof_offset > 0) _base_link->setPose(current_pose); // only need to update the pose if we actually changed it
+    // now update joint positions
+    for (unsigned int i = dof_offset; i < dofs_to_set.size(); ++i) {
+        int dof = dofs_to_set[i];
+        int joint_index = _is_static ? dof : dof - 3;
+        _sorted_joints[joint_index]->resetPosition(values[i], false);
     }
     // finally reset to previous velocities given the new positions
     updateBodyVelocities(velocities);
@@ -1408,6 +1469,16 @@ void Box2DObject::setName(const std::string &name) {
 
 bool Box2DObject::isStatic() const {
     return _is_static;
+}
+
+void Box2DObject::getBallApproximation(std::vector<Ball>& balls) const {
+    balls.resize(_num_balls);
+    auto balls_iter = balls.begin();
+    for (const auto& link_pair : _links) {
+        auto link = link_pair.second;
+        auto link_balls_end = balls_iter + link->getNumApproximationBalls();
+        link->updateBallApproximation(balls, balls_iter, link_balls_end);
+    }
 }
 
 void Box2DObject::getLinks(std::vector<LinkPtr>& links) {
@@ -1734,6 +1805,10 @@ void Box2DRobot::setDOFVelocities(const Eigen::VectorXf &values, const Eigen::Ve
 
 bool Box2DRobot::isStatic() const {
     return _robot_object->isStatic();
+}
+
+void Box2DRobot::getBallApproximation(std::vector<Ball>& balls) const {
+    _robot_object->getBallApproximation(balls);
 }
 
 bool Box2DRobot::atRest(float threshold) const {
@@ -2604,24 +2679,6 @@ LoggerPtr Box2DWorld::getLogger() {
 
 LoggerConstPtr Box2DWorld::getConstLogger() const {
     return _logger;
-}
-
-float Box2DWorld::getScale() const {
-    return _scale;
-}
-
-float Box2DWorld::getInverseScale() const {
-    if (_scale == 0.0f) {
-        std::string prefix("[sim_env::Box2DWorld::getInverseScale]");
-        std::string msg("Invalid scale: 0.0. Can not invert scale.""Invalid scale: 0.0. Can not invert scale.");
-        _logger->logErr(msg, prefix);
-        throw std::runtime_error(prefix + msg);
-    }
-    return 1.0f / _scale;
-}
-
-float Box2DWorld::getGravity() const {
-    return GRAVITY * getScale();
 }
 
 Eigen::Vector4f Box2DWorld::getWorldBounds() const {

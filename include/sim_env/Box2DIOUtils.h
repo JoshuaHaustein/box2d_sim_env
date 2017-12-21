@@ -18,6 +18,7 @@ namespace sim_env {
     struct Box2DLinkDescription {
         std::string name;
         std::vector< std::vector<float> > polygons;
+        std::vector< std::pair<Eigen::Vector3f, float> > balls;
         float mass;
         float trans_friction;
         float rot_friction;
@@ -111,6 +112,7 @@ namespace YAML {
                 }
                 node["geometry"].push_back(polygon);
             }
+            node["balls"] = ld.balls;
             node["mass"] = ld.mass;
             node["trans_friction"] = ld.trans_friction;
             node["rot_friction"] = ld.rot_friction;
@@ -129,6 +131,10 @@ namespace YAML {
             ld.polygons.clear();
             for (auto& polygon : node["geometry"]) {
                 ld.polygons.push_back(polygon.as< std::vector<float> >());
+            }
+            ld.balls.clear();
+            if (node["balls"]) {
+                ld.balls = node["balls"].as<std::vector< std::pair< Eigen::Vector3f, float> > >();
             }
             return true;
         }

@@ -82,7 +82,7 @@ void sim_env::viewer::Box2DObjectView::setColor(float r, float g, float b) {
     auto color = QColor();
     color.setRgbF(r, g, b);
     for (auto* link : _link_views) {
-        link->setColors(color, QColor(0, 0, 0));
+        link->setColors(color, QColor(0, 0, 0), QColor(255, 0, 0, 100));
     }
 }
 
@@ -155,7 +155,7 @@ void sim_env::viewer::Box2DRobotView::setColor(float r, float g, float b) {
     auto color = QColor();
     color.setRgbF(r, g, b);
     for (auto* link : _link_views) {
-        link->setColors(color, QColor(0, 0, 0));
+        link->setColors(color, QColor(0, 0, 0), QColor(255, 0, 0, 100));
     }
 }
 
@@ -235,24 +235,27 @@ sim_env::viewer::Box2DLinkView::Box2DLinkView(sim_env::Box2DLinkConstPtr link,
     _link = link;
     _border_color = QColor(0,0,0);
     _fill_color = QColor(140, 140, 140);
+    _ball_color = QColor(255, 0, 0, 100);
     Box2DWorldPtr world = link->getBox2DWorld();
-    float scaling_factor = world->getInverseScale();
 
     std::vector<std::vector<Eigen::Vector2f> > geometry;
     link->getGeometry(geometry);
     for (auto& polygon : geometry) {
         QPolygonF qt_polygon;
         for (auto& point : polygon) {
-            qt_polygon.push_back(QPointF(scaling_factor * point[0], scaling_factor * point[1]));
+            qt_polygon.push_back(QPointF(point[0], point[1]));
         }
         _polygons.push_back(qt_polygon);
         _bounding_rect |= qt_polygon.boundingRect();
     }
+
+    link->getBallApproximation(_balls);
 }
 
-void sim_env::viewer::Box2DLinkView::setColors(const QColor& fill_color, const QColor& border_color) {
+void sim_env::viewer::Box2DLinkView::setColors(const QColor& fill_color, const QColor& border_color, const QColor& ball_color) {
     _border_color = border_color;
     _fill_color = fill_color;
+    _ball_color = ball_color;
 }
 
 QRectF sim_env::viewer::Box2DLinkView::boundingRect() const {
@@ -292,6 +295,14 @@ void sim_env::viewer::Box2DLinkView::paint(QPainter *painter, const QStyleOption
     painter->setPen(my_pen);
     for (auto& polygon : _polygons) {
         painter->drawPolygon(polygon);
+    }
+    // finally, if the object is selected, also draw ball approximation if available
+    if (parentItem()->isSelected() and not _balls.empty()) {
+        my_brush.setColor(_ball_color);
+        painter->setBrush(my_brush);
+        for (auto& ball : _balls) {
+            painter->drawEllipse(QPointF(ball.center[0], ball.center[1]), ball.radius, ball.radius);
+        }
     }
     painter->setBrush(original_brush);
     painter->setPen(original_pen);
@@ -1291,7 +1302,7 @@ void sim_env::viewer::Box2DWorldView::scaleView(double scale_factor) {
     // this is from a qt example
     qreal factor = transform().scale(scale_factor, scale_factor).mapRect(QRectF(0, 0, 1, 1)).width();
     // TODO this is the width of a unit cube when zoomed. See whether these numbers should be dependent on sth
-    if (factor < 0.7 || factor > 500) {
+    if (factor < 0.7 || factor > 600) {
         return;
     }
     scale(scale_factor, scale_factor);
