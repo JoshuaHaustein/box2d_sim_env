@@ -1413,7 +1413,7 @@ void sim_env::Box2DWorldViewer::show(int argc, const char* const* argv) {
     _argv = new char*[argc];
     for (int i = 0; i < argc; ++i) {
         size_t length = std::strlen(argv[i]);
-        _argv[i] = new char[length];
+        _argv[i] = new char[length + 1]; // + 1 for null character
         std::strcpy(_argv[i], argv[i]);
     }
     _app = std::unique_ptr<QApplication>(new QApplication(_argc, _argv));
