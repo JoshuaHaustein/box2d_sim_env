@@ -17,9 +17,9 @@
 #include <QtGui/QLabel>
 #include <QtGui/QPushButton>
 #include <QtGui/QWidget>
-#include <QWheelEvent>
-#include <QTimer>
+#include <QtGui/QWheelEvent>
 #include <QtGui/QRadioButton>
+#include <QtCore/QTimer>
 #include <QtCore/QSize>
 
 //////////////////////////////////////// utils /////////////////////////////////////////////
@@ -249,7 +249,7 @@ sim_env::viewer::Box2DLinkView::Box2DLinkView(sim_env::Box2DLinkConstPtr link,
         _bounding_rect |= qt_polygon.boundingRect();
     }
 
-    link->getBallApproximation(_balls);
+    link->getLocalBallApproximation(_balls);
 }
 
 void sim_env::viewer::Box2DLinkView::setColors(const QColor& fill_color, const QColor& border_color, const QColor& ball_color) {
