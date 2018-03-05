@@ -547,6 +547,30 @@ namespace sim_env{
         void commandEfforts(const Eigen::VectorXf& target);
     };
 
+    // class Box2DCollisionRecorder : public b2ContactListener {
+    //     public:
+    //         void resetRecordings();
+    //         void getRecordedContacts(std::vector<Contact>& contacts) const;
+    //         // b2ContactListener
+    //         void BeginContact(b2Contact* contact) override;
+    //         void EndContact(b2Contact* contact) override;
+    //         void PreSolve(b2Contact* contact, const b2Manifold* oldManifold) override;
+    //         void PostSolve(b2Contact* contact, const b2ContactImpulse* impulse) override;
+    //     private:
+
+    // };
+
+    // class Box2DContactListenerDistributor : public b2ContactListener {
+    //     public:
+    //         Box2DContactListenerDistributor();
+    //         ~Box2DContactListenerDistributor();
+    //         void BeginContact(b2Contact* contact) override;
+    //         void EndContact(b2Contact* contact) override;
+    //         void PreSolve(b2Contact* contact, const b2Manifold* oldManifold) override;
+    //         void PostSolve(b2Contact* contact, const b2ContactImpulse* impulse) override;
+    //         std::vector<b2ContactListener*> listeners;
+    // };
+
     class Box2DCollisionChecker : public b2ContactListener {
     public:
         explicit Box2DCollisionChecker(Box2DWorldPtr world);
@@ -602,6 +626,16 @@ namespace sim_env{
                             const std::vector<Box2DCollidablePtr>& collidables,
                             std::vector<Contact>& contacts);
 
+        /**
+         * Resets the internal contact recorder.
+         */
+        void resetRecordings();
+
+        /**
+         *  Returns all contacts that occurred since resetRecordings was called the last time.
+         */
+        void getRecordedContacts(std::vector<Contact>& contacts);
+
         // b2ContactListener
         void BeginContact(b2Contact* contact) override;
         void EndContact(b2Contact* contact) override;
@@ -615,17 +649,20 @@ namespace sim_env{
         typedef std::unordered_map<b2Body*, Contact> ContactMap;
         std::unordered_map<b2Body*, ContactMap> _contact_maps;
         std::unordered_map<b2Body*, LinkWeakPtr> _body_to_link_map;
+        typedef std::tuple<b2Body*, b2Body*, Contact> ContactRecord;
+        std::vector<ContactRecord> _registered_contacts; // just a list of all registered contacts
 
         // TODO instead of always updating all contacts, we listen to the world and only update
         // TODO contacts if there were changes
         void updateContacts();
         // TODO maybe we can make some of these inline?
-        void addContact(b2Body* body_a, b2Body* body_b, b2Contact* contact);
+        void updateContactMaps(b2Body* body_a, b2Body* body_b, b2Contact* contact);
         void removeContact(b2Body* body_a, b2Body* body_b);
+        void addContactRecording(b2Body* body_a, b2Body* body_b, b2Contact* contact);
         bool areInContact(b2Body* body_a, b2Body* body_b) const;
         bool hasContacts(b2Body* body) const;
         Box2DWorldPtr getWorld();
-        LinkPtr getLink(b2Body* body, Box2DCollidablePtr collidable);
+        LinkPtr getLink(b2Body* body, Box2DCollidablePtr collidable=nullptr);
     };
 
     /**
@@ -677,7 +714,9 @@ namespace sim_env{
                         bool exclude_robots=true) const override;
 
         void stepPhysics(int steps) override;
+        void stepPhysics(std::vector<Contact>& contacts, int steps=1) override;
         void stepPhysics(int steps, bool execute_controller, bool allow_sleeping);
+        void stepPhysics(std::vector<Contact>& contacts, int steps, bool execute_controller, bool allow_sleeping);
         bool supportsPhysics() const override;
         void setPhysicsTimeStep(float physics_step) override;
         void setVelocitySteps(int velocity_steps);

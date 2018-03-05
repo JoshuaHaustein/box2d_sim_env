@@ -2078,9 +2078,39 @@ void Box2DRobot::setPose(float x, float y, float theta) {
     _robot_object->setPose(x, y, theta);
 }
 
-////////////////////////////////////////////////////////////////////////////////
-/////////////////////* Definition of Box2DCollisionChecker members *///////////////////////
-////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////* Definition of Box2DContactListenerDistributor members */////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
+// Box2DContactListenerDistributor::Box2DContactListenerDistributor() = default;
+
+// Box2DContactListenerDistributor::~Box2DContactListenerDistributor() = default;
+
+// void Box2DContactListenerDistributor::BeginContact(b2Contact *contact) {
+//     for (auto listener : listeners) {
+//         listener->BeginContact(contact);
+//     }
+// }
+
+// void Box2DContactListenerDistributor::EndContact(b2Contact *contact) {
+//     for (auto listener : listeners) {
+//         listener->EndContact(contact);
+//     }
+// }
+
+// void Box2DContactListenerDistributor::PreSolve(b2Contact *contact, const b2Manifold *oldManifold) {
+//     for (auto listener : listeners) {
+//         listener->PreSolve(contact, oldManifold);
+//     }
+// }
+
+// void Box2DContactListenerDistributor::PostSolve(b2Contact *contact, const b2ContactImpulse *impulse) {
+//     for (auto listener : listeners) {
+//         listener->PostSolve(contact, impulse);
+//     }
+// }
+///////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////* Definition of Box2DCollisionChecker members *///////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////
 Box2DCollisionChecker::Box2DCollisionChecker(Box2DWorldPtr world) {
     _weak_world = world;
     _scale = world->getInverseScale();
@@ -2228,11 +2258,37 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a,
     return is_in_collision;
 }
 
+void Box2DCollisionChecker::resetRecordings() {
+    _registered_contacts.clear();
+}
+
+void Box2DCollisionChecker::getRecordedContacts(std::vector<Contact>& contacts) {
+    for (auto contact_record : _registered_contacts) {
+        auto body_a = std::get<0>(contact_record);
+        auto body_b = std::get<1>(contact_record);
+        auto contact = std::get<2>(contact_record);
+        if (!contact.link_a.lock()) {
+            contact.link_a = getLink(body_a);
+        }
+        if (!contact.link_b.lock()) {
+            contact.link_b = getLink(body_b);
+        }
+        if (!contact.object_a.lock()) {
+            contact.object_a = (contact.link_a.lock())->getObject();
+        }
+        if (!contact.object_b.lock()) {
+            contact.object_b = (contact.link_b.lock())->getObject();
+        }
+        contacts.push_back(contact);
+    }
+}
+
 void Box2DCollisionChecker::BeginContact(b2Contact *contact) {
     b2Body* body_a = contact->GetFixtureA()->GetBody();
     b2Body* body_b = contact->GetFixtureB()->GetBody();
-    addContact(body_a, body_b, contact);
-    addContact(body_b, body_a, contact);
+    updateContactMaps(body_a, body_b, contact);
+    updateContactMaps(body_b, body_a, contact);
+    addContactRecording(body_a, body_b, contact);
 }
 
 void Box2DCollisionChecker::EndContact(b2Contact *contact) {
@@ -2255,7 +2311,7 @@ void Box2DCollisionChecker::removeContact(b2Body* body_a, b2Body* body_b) {
     }
 }
 
-void Box2DCollisionChecker::addContact(b2Body* body_a, b2Body* body_b, b2Contact* contact) {
+void Box2DCollisionChecker::updateContactMaps(b2Body* body_a, b2Body* body_b, b2Contact* contact) {
     // first ensure we have a contacts map for body a
     auto insert_result = _contact_maps.insert(std::pair<b2Body*, ContactMap>(body_a, ContactMap()));
     // insert result should be (iter, bool) with iter pointing at the ContactMap for body_a
@@ -2282,6 +2338,22 @@ void Box2DCollisionChecker::addContact(b2Body* body_a, b2Body* body_b, b2Contact
     // since body_a_contacts is a reference, we are done
 }
 
+void Box2DCollisionChecker::addContactRecording(b2Body* body_a, b2Body* body_b, b2Contact* contact) {
+    b2WorldManifold world_manifold;
+    contact->GetWorldManifold(&world_manifold);
+    Contact new_contact;
+    // contact point
+    new_contact.contact_point[0] = _scale * world_manifold.points[0].x;
+    new_contact.contact_point[1] = _scale * world_manifold.points[0].y;
+    new_contact.contact_point[2] = 0.0f;
+    // contact normal
+    new_contact.contact_normal[0] = _scale * world_manifold.normal.x;
+    new_contact.contact_normal[1] = _scale * world_manifold.normal.y;
+    new_contact.contact_normal[2] = 0.0f;
+    // add the recording
+    _registered_contacts.push_back(std::make_tuple(body_a, body_b, new_contact));
+}
+
 bool Box2DCollisionChecker::areInContact(b2Body *body_a, b2Body *body_b) const {
     auto iter_a = _contact_maps.find(body_a);
     if (iter_a == _contact_maps.end()) {
@@ -2302,8 +2374,8 @@ void Box2DCollisionChecker::updateContacts() {
         throw std::logic_error(log_prefix +
                                "Could not acquire access to Box2DWorld. This object should not exist anymore!");
     }
-    world->getLogger()->logDebug("Collision cache invalid! Forward propagating world for collision checks",
-                                 log_prefix);
+    // world->getLogger()->logDebug("Collision cache invalid! Forward propagating world for collision checks",
+    //                              log_prefix);
     Box2DWorldLock lock(world->getMutex());
     world->saveState();
     world->setToRest();
@@ -2394,7 +2466,7 @@ struct Box2DAABBQuery : public b2QueryCallback {
 ////////////////////////////////////////////////////////////////////////////////
 
 Box2DWorld::Box2DWorld() : _world(nullptr), _b2_ground_body(nullptr), _collision_checker(nullptr),
-                           _time_step(0.01f), _velocity_steps(10), _position_steps(10), _logger(DefaultLogger::getInstance()) {
+                           _time_step(0.01f), _velocity_steps(15), _position_steps(15), _logger(DefaultLogger::getInstance()) {
 }
 
 Box2DWorld::~Box2DWorld() {
@@ -2606,6 +2678,30 @@ void Box2DWorld::stepPhysics(int steps, bool execute_controllers, bool allow_sle
         _world->ClearForces();
         _world->SetAllowSleeping(true);
     }
+}
+
+void Box2DWorld::stepPhysics(std::vector<Contact>& contacts, int steps) {
+    stepPhysics(contacts, steps, true, true);
+}
+
+void Box2DWorld::stepPhysics(std::vector<Contact>& contacts, int steps,
+                             bool execute_controllers, bool allow_sleeping) {
+    Box2DWorldLock lock(getMutex());
+    _collision_checker->resetRecordings();
+    for (int i = 0; i < steps; ++i) {
+        if (execute_controllers) {
+            // call control functions of all robots in the scene
+            for (auto& robot_map_iter : _robots) {
+                robot_map_iter.second->control(_time_step);
+            }
+        }
+        // simulate physics
+        _world->SetAllowSleeping(allow_sleeping);
+        _world->Step(_time_step, _velocity_steps, _position_steps);
+        _world->ClearForces();
+        _world->SetAllowSleeping(true);
+    }
+    _collision_checker->getRecordedContacts(contacts);
 }
 
 bool Box2DWorld::supportsPhysics() const {
