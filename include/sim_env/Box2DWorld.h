@@ -629,35 +629,38 @@ namespace sim_env{
         /**
          * Resets the internal contact recorder.
          */
-        void resetRecordings();
+        void startRecordings();
 
         /**
          *  Returns all contacts that occurred since resetRecordings was called the last time.
          */
         void getRecordedContacts(std::vector<Contact>& contacts);
 
+        /**
+         * Invalidates the internal contact cache
+         */
+        void invalidateCache();
+
         // b2ContactListener
         void BeginContact(b2Contact* contact) override;
         void EndContact(b2Contact* contact) override;
         void PreSolve(b2Contact* contact, const b2Manifold* oldManifold) override;
         void PostSolve(b2Contact* contact, const b2ContactImpulse* impulse) override;
-        void invalidateCache();
     private:
         Box2DWorldWeakPtr _weak_world;
         bool _cache_invalid;
+        bool _b_record_contacts;
         float _scale;
-        typedef std::unordered_map<b2Body*, Contact> ContactMap;
-        std::unordered_map<b2Body*, ContactMap> _contact_maps;
+        typedef std::unordered_map<b2Body*, std::vector<Contact> > ContactMap;
+        std::unordered_map<b2Body*, ContactMap> _body_contact_maps;
         std::unordered_map<b2Body*, LinkWeakPtr> _body_to_link_map;
-        typedef std::tuple<b2Body*, b2Body*, Contact> ContactRecord;
-        std::vector<ContactRecord> _registered_contacts; // just a list of all registered contacts
+        // a list of contacts registered during a physics propagation
+        typedef std::tuple<b2Fixture*, b2Fixture*, Contact> ContactRecord;
+        std::vector<ContactRecord> _registered_contacts; 
 
-        // TODO instead of always updating all contacts, we listen to the world and only update
-        // TODO contacts if there were changes
-        void updateContacts();
+        void updateContactCache();
         // TODO maybe we can make some of these inline?
         void updateContactMaps(b2Body* body_a, b2Body* body_b, b2Contact* contact);
-        void removeContact(b2Body* body_a, b2Body* body_b);
         void addContactRecording(b2Body* body_a, b2Body* body_b, b2Contact* contact);
         bool areInContact(b2Body* body_a, b2Body* body_b) const;
         bool hasContacts(b2Body* body) const;

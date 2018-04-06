@@ -2115,6 +2115,7 @@ Box2DCollisionChecker::Box2DCollisionChecker(Box2DWorldPtr world) {
     _weak_world = world;
     _scale = world->getInverseScale();
     _cache_invalid = true;
+    _b_record_contacts = false;
 }
 
 Box2DCollisionChecker::~Box2DCollisionChecker() {
@@ -2136,7 +2137,7 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a, Box2
 bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable) {
     WorldPtr world = getWorld();
     Box2DWorldLock lock(world->getMutex());
-    updateContacts();
+    updateContactCache();
     std::vector<b2Body*> bodies;
     collidable->getBodies(bodies);
     for (b2Body* body : bodies) {
@@ -2151,28 +2152,35 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable, std::v
     bool is_in_collision = false;
     WorldPtr world = getWorld();
     Box2DWorldLock lock(world->getMutex());
-    updateContacts();
+    // compute contacts first
+    updateContactCache();
     std::vector<b2Body*> bodies;
     collidable->getBodies(bodies);
+    // run over all bodies of this collidable
     for (b2Body* body : bodies) {
         LinkPtr link_a = getLink(body, collidable);
         ObjectPtr object_a = link_a->getObject();
-        auto maps_iter = _contact_maps.find(body);
-        if (maps_iter != _contact_maps.end() and not maps_iter->second.empty()) {
+        // get the contact maps for this body
+        auto maps_iter = _body_contact_maps.find(body);
+        // check whether there are any contacts for the current body
+        if (maps_iter != _body_contact_maps.end() and not maps_iter->second.empty()) {
             ContactMap& contact_map = maps_iter->second;
             is_in_collision = true;
+            // run over the other bodies that this body collides with
             for (auto contact_map_iter : contact_map) {
                 b2Body* other_body = contact_map_iter.first;
-                Contact contact = contact_map_iter.second;
-                contact.link_a = link_a;
-                contact.object_a = object_a;
-                LinkPtr link = getLink(other_body, nullptr);
-                if (!link) {
-                    throw std::logic_error("[sim_env::Box2DCollisionChecker::checkCollision] Could not retrieve link for a colliding Box2D body.");
+                // run over all contacts that these two bodies have
+                for (auto& contact : contact_map_iter.second) {
+                    contact.link_a = link_a;
+                    contact.object_a = object_a;
+                    LinkPtr link = getLink(other_body, nullptr);
+                    if (!link) {
+                        throw std::logic_error("[sim_env::Box2DCollisionChecker::checkCollision] Could not retrieve link for a colliding Box2D body.");
+                    }
+                    contact.link_b = link;
+                    contact.object_b = link->getObject();
+                    contacts.push_back(contact);
                 }
-                contact.link_b = link;
-                contact.object_b = link->getObject();
-                contacts.push_back(contact);
             }
         }
     }
@@ -2183,7 +2191,7 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a, cons
     WorldPtr world = getWorld();
     Box2DWorldLock lock(world->getMutex());
     // compute contacts
-    updateContacts();
+    updateContactCache();
     // we only need to get the bodies of collidable a once
     std::vector<b2Body*> bodies_a;
     collidable_a->getBodies(bodies_a);
@@ -2194,8 +2202,8 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a, cons
         collidable_b->getBodies(bodies_b);
         // now run over each body pair and check whether it is colliding
         for (b2Body* body_a : bodies_a) {
-            auto iter_a = _contact_maps.find(body_a);
-            if (iter_a != _contact_maps.end() and not iter_a->second.empty()) {
+            auto iter_a = _body_contact_maps.find(body_a);
+            if (iter_a != _body_contact_maps.end() and not iter_a->second.empty()) {
                 // body_a has some contacts
                 ContactMap& body_a_contacts = iter_a->second;
                 // let's check whether any of b's bodies is in contact with this body
@@ -2220,7 +2228,7 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a,
     Box2DWorldLock lock(world->getMutex());
     bool is_in_collision = false;
     // compute contacts
-    updateContacts();
+    updateContactCache();
     // we only need to get the bodies of collidable a once
     std::vector<b2Body*> bodies_a;
     collidable_a->getBodies(bodies_a);
@@ -2233,23 +2241,24 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a,
         for (b2Body* body_a : bodies_a) {
             LinkPtr link_a = collidable_a->getLink(body_a);
             ObjectPtr object_a = link_a->getObject();
-            auto iter_a = _contact_maps.find(body_a);
-            if (iter_a != _contact_maps.end() and not iter_a->second.empty()) {
+            auto iter_a = _body_contact_maps.find(body_a);
+            if (iter_a != _body_contact_maps.end() and not iter_a->second.empty()) {
                 // body_a has some contacts
                 ContactMap& body_a_contacts = iter_a->second;
                 // let's check whether any of b's bodies is in contact with this body
                 for (b2Body* body_b : bodies_b) {
                     auto iter_b = body_a_contacts.find(body_b);
-                    // if yes add the contact
+                    // if yes add the contacts
                     if (iter_b != body_a_contacts.end()) {
                         is_in_collision = true;
-                        Contact contact = iter_b->second;
-                        contact.object_a = object_a;
-                        contact.link_a = link_a;
-                        LinkPtr link_b = getLink(body_b, collidable_b);
-                        contact.link_b = link_b;
-                        contact.object_b = link_b->getObject();
-                        contacts.push_back(contact);
+                        for (auto& contact : iter_b->second) {
+                            contact.object_a = object_a;
+                            contact.link_a = link_a;
+                            LinkPtr link_b = getLink(body_b, collidable_b);
+                            contact.link_b = link_b;
+                            contact.object_b = link_b->getObject();
+                            contacts.push_back(contact);
+                        }
                     }
                 }
             }
@@ -2258,20 +2267,43 @@ bool Box2DCollisionChecker::checkCollision(Box2DCollidablePtr collidable_a,
     return is_in_collision;
 }
 
-void Box2DCollisionChecker::resetRecordings() {
+void Box2DCollisionChecker::startRecordings() {
+    static const std::string log_prefix("[Box2DCollisionChecker::startRecordings]");
+    Box2DWorldPtr world = _weak_world.lock();
+    if (!world) {
+        throw std::logic_error(log_prefix +
+                               "Could not acquire access to Box2DWorld. This object should not exist anymore!");
+    }
+    // lock the world
+    Box2DWorldLock lock(world->getMutex());
     _registered_contacts.clear();
+    _b_record_contacts = false;
+    // initialize registered contacts with currently existing contacts
+    world->saveState();
+    world->setToRest();
+    world->stepPhysics(1, false, false);  // need to do this so that contact list gets updated
+    _b_record_contacts = true;
+    auto box2d_world = world->getRawBox2DWorld();
+    auto contact = box2d_world->GetContactList();
+    while(contact) {
+        if (contact->IsTouching() && contact->IsEnabled()) {
+            BeginContact(contact);
+        }
+        contact = contact->GetNext();
+    }
+    world->restoreState();
 }
 
 void Box2DCollisionChecker::getRecordedContacts(std::vector<Contact>& contacts) {
     for (auto contact_record : _registered_contacts) {
-        auto body_a = std::get<0>(contact_record);
-        auto body_b = std::get<1>(contact_record);
+        auto fixture_a = std::get<0>(contact_record);
+        auto fixture_b = std::get<1>(contact_record);
         auto contact = std::get<2>(contact_record);
         if (!contact.link_a.lock()) {
-            contact.link_a = getLink(body_a);
+            contact.link_a = getLink(fixture_a->GetBody());
         }
         if (!contact.link_b.lock()) {
-            contact.link_b = getLink(body_b);
+            contact.link_b = getLink(fixture_b->GetBody());
         }
         if (!contact.object_a.lock()) {
             contact.object_a = (contact.link_a.lock())->getObject();
@@ -2284,61 +2316,9 @@ void Box2DCollisionChecker::getRecordedContacts(std::vector<Contact>& contacts) 
 }
 
 void Box2DCollisionChecker::BeginContact(b2Contact *contact) {
-    b2Body* body_a = contact->GetFixtureA()->GetBody();
-    b2Body* body_b = contact->GetFixtureB()->GetBody();
-    updateContactMaps(body_a, body_b, contact);
-    updateContactMaps(body_b, body_a, contact);
-    addContactRecording(body_a, body_b, contact);
-}
-
-void Box2DCollisionChecker::EndContact(b2Contact *contact) {
-    b2Body* body_a = contact->GetFixtureA()->GetBody();
-    b2Body* body_b = contact->GetFixtureB()->GetBody();
-    removeContact(body_a, body_b);
-    removeContact(body_b, body_a);
-}
-
-void Box2DCollisionChecker::PreSolve(b2Contact *contact, const b2Manifold *oldManifold) {
-}
-
-void Box2DCollisionChecker::PostSolve(b2Contact *contact, const b2ContactImpulse *impulse) {
-}
-
-void Box2DCollisionChecker::removeContact(b2Body* body_a, b2Body* body_b) {
-    auto iter = _contact_maps.find(body_a);
-    if (iter != _contact_maps.end()) {
-        iter->second.erase(body_b);
-    }
-}
-
-void Box2DCollisionChecker::updateContactMaps(b2Body* body_a, b2Body* body_b, b2Contact* contact) {
-    // first ensure we have a contacts map for body a
-    auto insert_result = _contact_maps.insert(std::pair<b2Body*, ContactMap>(body_a, ContactMap()));
-    // insert result should be (iter, bool) with iter pointing at the ContactMap for body_a
-    assert(insert_result.first != _contact_maps.end());
-    ContactMap& body_a_contacts = insert_result.first->second;
-    // now check whether we have body_b already in the contact list
-    auto iter_b = body_a_contacts.find(body_b);
-    if (iter_b == body_a_contacts.end()) {
-        // if not add it
-        b2WorldManifold world_manifold;
-        contact->GetWorldManifold(&world_manifold);
-        Contact new_contact;
-        // contact point
-        new_contact.contact_point[0] = _scale * world_manifold.points[0].x;
-        new_contact.contact_point[1] = _scale * world_manifold.points[0].y;
-        new_contact.contact_point[2] = 0.0f;
-        // contact normal
-        new_contact.contact_normal[0] = _scale * world_manifold.normal.x;
-        new_contact.contact_normal[1] = _scale * world_manifold.normal.y;
-        new_contact.contact_normal[2] = 0.0f;
-        // we get the object ptr and link ptr later
-        body_a_contacts.insert(std::pair<b2Body*, Contact>(body_b, new_contact));
-    }
-    // since body_a_contacts is a reference, we are done
-}
-
-void Box2DCollisionChecker::addContactRecording(b2Body* body_a, b2Body* body_b, b2Contact* contact) {
+    if (!_b_record_contacts) return;
+    b2Fixture* fixture_a = contact->GetFixtureA();
+    b2Fixture* fixture_b = contact->GetFixtureB();
     b2WorldManifold world_manifold;
     contact->GetWorldManifold(&world_manifold);
     Contact new_contact;
@@ -2351,12 +2331,57 @@ void Box2DCollisionChecker::addContactRecording(b2Body* body_a, b2Body* body_b, 
     new_contact.contact_normal[1] = _scale * world_manifold.normal.y;
     new_contact.contact_normal[2] = 0.0f;
     // add the recording
-    _registered_contacts.push_back(std::make_tuple(body_a, body_b, new_contact));
+    _registered_contacts.push_back(std::make_tuple(fixture_a, fixture_b, new_contact));
+}
+
+void Box2DCollisionChecker::EndContact(b2Contact *contact) {
+}
+
+void Box2DCollisionChecker::PreSolve(b2Contact *contact, const b2Manifold *oldManifold) {
+}
+
+void Box2DCollisionChecker::PostSolve(b2Contact *contact, const b2ContactImpulse *impulse) {
+}
+
+void Box2DCollisionChecker::updateContactMaps(b2Body* body_a, b2Body* body_b, b2Contact* contact) {
+    // Start assumption: contact is not stored in cache yet 
+    // first ensure we have a contacts map for body a
+    auto body_contact_map_iter = _body_contact_maps.find(body_a);
+    // if we don't have a body map for body a yet, add it
+    if (body_contact_map_iter == _body_contact_maps.end()) {
+        auto insert_result = _body_contact_maps.insert(std::pair<b2Body*, ContactMap>(body_a, ContactMap()));
+        // insert result should be (iter, bool) with iter pointing at the ContactMap for body_a
+        assert(insert_result.first != _body_contact_maps.end());
+        body_contact_map_iter = insert_result.first;
+    }
+    // get reference to contact map for body a
+    ContactMap& body_a_contacts = body_contact_map_iter->second;
+    // now check whether we have body_b already in the contact list
+    auto body_a_contacts_iter = body_a_contacts.find(body_b);
+    if (body_a_contacts_iter == body_a_contacts.end()) { // if not add contact list
+        auto insert_result = body_a_contacts.insert(std::make_pair(body_b, std::vector<Contact>()));
+        body_a_contacts_iter = insert_result.first;
+    }
+    // next we can add this contact to our cache
+    b2WorldManifold world_manifold;
+    contact->GetWorldManifold(&world_manifold);
+    Contact new_contact;
+    // contact point
+    new_contact.contact_point[0] = _scale * world_manifold.points[0].x;
+    new_contact.contact_point[1] = _scale * world_manifold.points[0].y;
+    new_contact.contact_point[2] = 0.0f;
+    // contact normal
+    new_contact.contact_normal[0] = _scale * world_manifold.normal.x;
+    new_contact.contact_normal[1] = _scale * world_manifold.normal.y;
+    new_contact.contact_normal[2] = 0.0f;
+    // we get the object ptr and link ptr later
+    body_a_contacts_iter->second.push_back(new_contact);
+    // since body_a_contacts is a reference, we are done
 }
 
 bool Box2DCollisionChecker::areInContact(b2Body *body_a, b2Body *body_b) const {
-    auto iter_a = _contact_maps.find(body_a);
-    if (iter_a == _contact_maps.end()) {
+    auto iter_a = _body_contact_maps.find(body_a);
+    if (iter_a == _body_contact_maps.end()) {
         return false;
     }
     const ContactMap& body_a_contacts = iter_a->second;
@@ -2364,8 +2389,8 @@ bool Box2DCollisionChecker::areInContact(b2Body *body_a, b2Body *body_b) const {
     return iter_b != body_a_contacts.end();
 }
 
-void Box2DCollisionChecker::updateContacts() {
-    static const std::string log_prefix("[sim_env::Box2DCollisionChecker::updateContacts]");
+void Box2DCollisionChecker::updateContactCache() {
+    static const std::string log_prefix("[sim_env::Box2DCollisionChecker::updateContactCache]");
     if (not _cache_invalid) {
         return;
     }
@@ -2377,16 +2402,28 @@ void Box2DCollisionChecker::updateContacts() {
     // world->getLogger()->logDebug("Collision cache invalid! Forward propagating world for collision checks",
     //                              log_prefix);
     Box2DWorldLock lock(world->getMutex());
+    _body_contact_maps.clear();
     world->saveState();
     world->setToRest();
-    world->stepPhysics(2, false, false); // TODO for some reason we need to have 2 time steps to detect collisions efficiently
+    world->stepPhysics(1, false, false); 
+    auto box2d_world = world->getRawBox2DWorld();
+    auto contact = box2d_world->GetContactList();
+    while(contact) {
+        if (contact->IsTouching() && contact->IsEnabled()) {
+            b2Body* body_a = contact->GetFixtureA()->GetBody();
+            b2Body* body_b = contact->GetFixtureB()->GetBody();
+            updateContactMaps(body_a, body_b, contact);
+            updateContactMaps(body_b, body_a, contact);
+        }
+        contact = contact->GetNext();
+    }
     world->restoreState();
     _cache_invalid = false;
 }
 
 bool Box2DCollisionChecker::hasContacts(b2Body *body) const {
-    auto iter = _contact_maps.find(body);
-    if (iter == _contact_maps.end()) {
+    auto iter = _body_contact_maps.find(body);
+    if (iter == _body_contact_maps.end()) {
         return false;
     }
     return not iter->second.empty();
@@ -2665,6 +2702,7 @@ void Box2DWorld::stepPhysics(int steps) {
 
 void Box2DWorld::stepPhysics(int steps, bool execute_controllers, bool allow_sleeping) {
     Box2DWorldLock lock(getMutex());
+    invalidateCollisionCache();
     for (int i = 0; i < steps; ++i) {
         if (execute_controllers) {
             // call control functions of all robots in the scene
@@ -2687,7 +2725,8 @@ void Box2DWorld::stepPhysics(std::vector<Contact>& contacts, int steps) {
 void Box2DWorld::stepPhysics(std::vector<Contact>& contacts, int steps,
                              bool execute_controllers, bool allow_sleeping) {
     Box2DWorldLock lock(getMutex());
-    _collision_checker->resetRecordings();
+    invalidateCollisionCache();
+    _collision_checker->startRecordings();
     for (int i = 0; i < steps; ++i) {
         if (execute_controllers) {
             // call control functions of all robots in the scene
