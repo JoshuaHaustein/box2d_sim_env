@@ -2405,7 +2405,7 @@ void Box2DCollisionChecker::updateContactCache() {
     _body_contact_maps.clear();
     world->saveState();
     world->setToRest();
-    world->stepPhysics(1, false, false); 
+    world->stepPhysics(2, false, false); // for some reason we need to propagate twice
     auto box2d_world = world->getRawBox2DWorld();
     auto contact = box2d_world->GetContactList();
     while(contact) {
@@ -2772,6 +2772,7 @@ int Box2DWorld::getPositionSteps() const {
 }
 
 bool Box2DWorld::isPhysicallyFeasible() {
+    // auto logger = getLogger();
     std::vector<Contact> contacts;
     checkCollision(contacts);
     for (auto& contact : contacts) {
@@ -2789,9 +2790,9 @@ bool Box2DWorld::isPhysicallyFeasible() {
                 bg::intersection(polygon_a, polygon_b, intersections);
                 for (auto& intersection : intersections) {
                     float area = bg::area(intersection);
-//                    auto logger = getLogger();
 //                    logger->logDebug(boost::format("Area is %f") % area, "[Box2DWorld::isPhysicallyFeasible]");
                     if (area > MAX_ALLOWED_INTERSECTION_AREA) {
+                        // logger->logDebug("Current state is physically infeasible", "[Box2DWorld::isPhysicallyFeasible]");
                         return false;
                     }
                 }
