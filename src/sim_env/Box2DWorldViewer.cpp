@@ -853,10 +853,10 @@ void sim_env::viewer::Box2DControllerView::synchSliderValue(QSlider *slider, sim
         limits = joint->getVelocityLimits();
         value = joint->getVelocity();
     }
-    if (isinf(limits[0])) {
+    if (std::isinf(limits[0])) {
         limits[0] = -utils::LARGE_FLOATING_NUMBER;
     }
-    if (isinf(limits[1])) {
+    if (std::isinf(limits[1])) {
         limits[1] = utils::LARGE_FLOATING_NUMBER;
     }
     int tick_value = utils::toTickValue(value, limits[0], limits[1]);

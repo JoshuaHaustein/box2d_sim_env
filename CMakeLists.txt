@@ -13,7 +13,7 @@ find_package(catkin REQUIRED
 ## System dependencies are found with CMake's conventions
 find_package(Qt4 COMPONENTS QtCore QtGui REQUIRED)
 include(${QT_USE_FILE})
-find_package(Eigen3 3.3 REQUIRED)
+find_package(Eigen3 REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(Threads REQUIRED)
 # find_package(yaml-cpp REQUIRED)
