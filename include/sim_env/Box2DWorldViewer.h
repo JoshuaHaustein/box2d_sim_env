@@ -227,6 +227,8 @@ namespace viewer {
              * set Box2D world.
              */
         void repopulate();
+        // call when the view is actually shown on the screen
+        void showEvent(QShowEvent* event) override;
         WorldViewer::Handle drawFrame(const Eigen::Affine3f& frame, float length = 1.0f, float width = 0.01f);
         WorldViewer::Handle drawBox(const Eigen::Vector3f& pos,
             const Eigen::Vector3f& extent,
@@ -269,6 +271,7 @@ namespace viewer {
         void wheelEvent(QWheelEvent* event) override;
         void scaleView(double scale_factor);
         WorldViewer::Handle addDrawing(QGraphicsItem* item);
+        void synchronizeScene();
         LoggerPtr getLogger() const;
         // Variables
         QGraphicsScene* _scene;
