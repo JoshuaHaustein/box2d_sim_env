@@ -1369,8 +1369,7 @@ void sim_env::viewer::Box2DWorldView::setColor(const std::string& name, float r,
         if (iter2 != _robot_views.end()) {
             iter2->second->setColor(r, g, b);
         } else {
-            // TODO error message using world logger
-            auto logger = sim_env::DefaultLogger::getInstance();
+            auto logger = getLogger();
             logger->logErr("Could not set color for object " + name + " because it was not found",
                 "[sim_env::viewer::Box2DWorldView::setColor]");
         }
@@ -1387,10 +1386,26 @@ void sim_env::viewer::Box2DWorldView::resetColor(const std::string& name)
         if (iter2 != _robot_views.end()) {
             iter2->second->resetColor();
         } else {
-            // TODO error message using world logger
-            auto logger = sim_env::DefaultLogger::getInstance();
+            auto logger = getLogger();
             logger->logErr("Could not reset color for object " + name + " because it was not found",
                 "[sim_env::viewer::Box2DWorldView::resetColor]");
+        }
+    }
+}
+
+void sim_env::viewer::Box2DWorldView::setObjectVisible(const std::string& name, bool visible)
+{
+    auto iter = _object_views.find(name);
+    if (iter != _object_views.end()) {
+        iter->second->setVisible(visible);
+    } else {
+        auto iter2 = _robot_views.find(name);
+        if (iter2 != _robot_views.end()) {
+            iter2->second->setVisible(visible);
+        } else {
+            auto logger = getLogger();
+            logger->logErr("Could not set visibility of object " + name + ", because it was not found",
+                "[sim_env::viewer::Box2DWorldView::setVisible]");
         }
     }
 }
@@ -1746,6 +1761,11 @@ QWidget* sim_env::Box2DWorldViewer::createSideBar()
     QObject::connect(_world_view, SIGNAL(refreshTick()), state_view, SLOT(stateUpdate()));
     state_view->setMaximumSize(200, 1080);
     return state_view;
+}
+
+void sim_env::Box2DWorldViewer::setVisible(const std::string& name, bool visible)
+{
+    _world_view->setObjectVisible(name, visible);
 }
 
 void sim_env::Box2DWorldViewer::addCustomWidget(QWidget* widget, const std::string& name)

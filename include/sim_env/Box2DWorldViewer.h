@@ -258,6 +258,7 @@ namespace viewer {
         QSize sizeHint() const override;
         void setColor(const std::string& name, float r, float g, float b);
         void resetColor(const std::string& name);
+        void setObjectVisible(const std::string& name, bool visible);
         void setRelativeSize(float width, float height);
 
     public slots:
@@ -367,6 +368,7 @@ public:
     WorldPtr getWorld() const override;
     void removeDrawing(const Handle& handle) override;
     void removeAllDrawings() override;
+    void setVisible(const std::string& name, bool visible) override;
     void addCustomWidget(QWidget* widget, const std::string& name);
     viewer::Box2DWorldView* getWorldViewer();
 
