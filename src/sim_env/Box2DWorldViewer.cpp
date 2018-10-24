@@ -1579,7 +1579,7 @@ void sim_env::Box2DWorldViewer::deleteArgs()
     _argc = 0;
 }
 
-void sim_env::Box2DWorldViewer::init(int argc, const char* const* argv)
+void sim_env::Box2DWorldViewer::init(int argc, char** argv)
 {
     // Qt requires the parameters argc and argv to exist as long as the application exists
     // so let's copy them

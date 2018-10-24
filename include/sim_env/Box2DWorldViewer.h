@@ -334,7 +334,7 @@ public:
          * @param argc - number of arguments stored in argv
          * @param argv - pointer to array of c-style strings. These parameters are forwarded to QApplication.
          */
-    void init(int argc = 0, const char* const* argv = nullptr);
+    void init(int argc = 0, char** argv = nullptr);
     /**
      *  Show the actual GUI.
      */
