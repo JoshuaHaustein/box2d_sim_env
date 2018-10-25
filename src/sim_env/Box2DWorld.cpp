@@ -3257,6 +3257,15 @@ bool Box2DWorld::restoreState()
     return state_is_set;
 }
 
+void Box2DWorld::dropState()
+{
+    Box2DWorldLock lock(getMutex());
+    if (_state_stack.empty()) {
+        return;
+    }
+    _state_stack.pop();
+}
+
 void Box2DWorld::invalidateCollisionCache()
 {
     if (_collision_checker) {

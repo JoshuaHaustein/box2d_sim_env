@@ -770,6 +770,7 @@ public:
 
     void saveState() override;
     bool restoreState() override;
+    void dropState() override;
     WorldState getWorldState() const override;
     void getWorldState(WorldState& state) const override;
     bool setWorldState(WorldState& state) override;
