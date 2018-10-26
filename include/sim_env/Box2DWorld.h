@@ -165,6 +165,8 @@ public:
     float getInertia() const;
     Box2DWorldPtr getBox2DWorld() const;
     BoundingBox getLocalBoundingBox() const;
+    void setEnabled(bool b_enable) override;
+    bool isEnabled() const override;
 
     //        Box2DObjectPtr getBox2DObject() const;
 
@@ -215,6 +217,7 @@ private:
     float _ground_friction;
     float _friction_ratio;
     bool _destroyed;
+    bool _enabled;
 
     /*
          * Recursively propagates a new absolute velocity of a parent frame through a kinematic chain.
@@ -392,6 +395,8 @@ public:
     void getState(ObjectState& object_state) const override;
     ObjectState getState() const override;
     void setState(const ObjectState& object_state) override;
+    void setEnabled(bool b_enable) override;
+    bool isEnabled() const override;
 
     // Box2D specific methods
     /**
@@ -529,6 +534,9 @@ public:
     void getPose(Eigen::Vector3f& pose) const;
     void setPose(const Eigen::Vector3f& pose);
     void setPose(float x, float y, float theta);
+
+    void setEnabled(bool b_enable) override;
+    bool isEnabled() const override;
 
 protected:
     // protected constructor to ensure construction is only done by friend classes

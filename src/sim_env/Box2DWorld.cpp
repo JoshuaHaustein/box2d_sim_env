@@ -43,6 +43,7 @@ Box2DLink::Box2DBodyUserData::~Box2DBodyUserData() = default;
 Box2DLink::Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world,
     bool is_static, const std::string& object_name)
     : _destroyed(false)
+    , _enabled(true)
 {
     Box2DWorldLock lock(world->getMutex());
     _name = link_desc.name;
@@ -679,6 +680,33 @@ const std::vector<boost::geometry::model::polygon<boost::geometry::model::d2::po
 Box2DLink::getBoostGeometry() const
 {
     return _boost_polygons;
+}
+
+void Box2DLink::setEnabled(bool b_enable)
+{
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
+    auto logger = world->getLogger();
+    if (b_enable) {
+        logger->logDebug("Setting link to be enabled");
+    } else {
+        logger->logDebug("Disabling link");
+    }
+    if (b_enable == _enabled)
+        return;
+    _enabled = b_enable;
+    b2Fixture* fixture = _body->GetFixtureList();
+    while (fixture) {
+        b2Filter filter = fixture->GetFilterData();
+        filter.categoryBits = b_enable;
+        fixture->SetFilterData(filter);
+        fixture = fixture->GetNext();
+    }
+}
+
+bool Box2DLink::isEnabled() const
+{
+    return _enabled;
 }
 
 ///////////////////////////////// PRIVATE //////////////////////////////////////
@@ -1840,6 +1868,22 @@ void Box2DObject::setState(const ObjectState& object_state)
     setDOFVelocities(object_state.dof_velocities, all_indices);
 }
 
+void Box2DObject::setEnabled(bool b_enable)
+{
+    for (auto link : _links) {
+        link.second->setEnabled(b_enable);
+    }
+}
+
+bool Box2DObject::isEnabled() const
+{
+    bool enabled = false;
+    for (auto link : _links) {
+        enabled |= link.second->isEnabled();
+    }
+    return enabled;
+}
+
 LinkPtr Box2DObject::getLink(b2Body* body)
 {
     //TODO maybe make this more efficient using a map
@@ -2312,6 +2356,16 @@ void Box2DRobot::setPose(const Eigen::Vector3f& pose)
 void Box2DRobot::setPose(float x, float y, float theta)
 {
     _robot_object->setPose(x, y, theta);
+}
+
+void Box2DRobot::setEnabled(bool b_enable)
+{
+    _robot_object->setEnabled(b_enable);
+}
+
+bool Box2DRobot::isEnabled() const
+{
+    return _robot_object->isEnabled();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
