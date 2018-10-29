@@ -306,6 +306,15 @@ void sim_env::viewer::Box2DLinkView::paint(QPainter* painter, const QStyleOption
     // now draw
     const QBrush original_brush = painter->brush();
     const QPen original_pen = painter->pen();
+    // set it semi-transparent in case its inactive
+    if (link->isEnabled()) {
+        _fill_color.setAlphaF(1.0f);
+        _border_color.setAlphaF(1.0f);
+    } else {
+        _fill_color.setAlphaF(0.2f);
+        _border_color.setAlphaF(0.2f);
+    }
+
     QBrush my_brush;
     my_brush.setColor(_fill_color);
     my_brush.setStyle(Qt::BrushStyle::SolidPattern);
