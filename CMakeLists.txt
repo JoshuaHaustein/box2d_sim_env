@@ -20,6 +20,8 @@ find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(YAML yaml-cpp REQUIRED)
 
+# CImg does not seem to ship any pkg-info file or Find*.cmake, so we add the include path manually:
+set(CImg_INCLUDE_DIRS "/usr/include/CImg.h")
 # TODO the following line shouldn't be here. BUt linking without catkin_make does not work otherwise
 # link_directories("/home/joshua/projects/planning_catkin/devel/lib/")
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -63,7 +65,8 @@ set(SOURCE_FILES
         src/sim_env/Box2DWorld.cpp
         src/sim_env/Box2DIOUtils.cpp
         src/sim_env/Box2DWorldViewer.cpp
-        src/sim_env/Box2DController.cpp)
+        src/sim_env/Box2DController.cpp
+        src/sim_env/Box2DImageRenderer.cpp)
 
 ## Additional Qt specific things (in case we need it)
  set (MOC_HEADERS include/sim_env/Box2DWorldViewer.h)
@@ -80,6 +83,7 @@ set(SOURCE_FILES
          ${Eigen3_INCLUDE_DIRS}
          ${catkin_INCLUDE_DIRS}
          ${Boost_INCLUDE_DIRS}
+         ${CImg_INCLUDE_DIRS}
          ${CMAKE_BINARY_DIR})
 
 ## Declare a C++ library
