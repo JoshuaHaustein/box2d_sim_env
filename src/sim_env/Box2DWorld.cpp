@@ -231,6 +231,15 @@ Box2DWorldPtr Box2DLink::getBox2DWorld() const
     return _world.lock();
 }
 
+BoundingBox Box2DLink::getBoundingBox() const
+{
+    BoundingBox global_box = _local_aabb;
+    Eigen::Affine3f tf = getTransform();
+    global_box.min_corner = tf * global_box.min_corner;
+    global_box.max_corner = tf * global_box.max_corner;
+    return global_box;
+}
+
 BoundingBox Box2DLink::getLocalBoundingBox() const
 {
     return _local_aabb;
@@ -1657,6 +1666,20 @@ void Box2DObject::getLinks(std::vector<LinkConstPtr>& links) const
     }
 }
 
+void Box2DObject::getBox2DLinks(std::vector<Box2DLinkPtr>& links)
+{
+    for (auto& iter : _links) {
+        links.push_back(iter.second);
+    }
+}
+
+void Box2DObject::getBox2DLinks(std::vector<Box2DLinkConstPtr>& links) const
+{
+    for (auto& iter : _links) {
+        links.push_back(iter.second);
+    }
+}
+
 LinkPtr Box2DObject::getLink(const std::string& link_name)
 {
     if (_links.find(link_name) != _links.end()) {
@@ -1809,13 +1832,6 @@ BoundingBox Box2DObject::getLocalAABB() const
 float Box2DObject::getGroundFriction() const
 {
     return _base_link->getGroundFriction();
-}
-
-void Box2DObject::getBox2DLinks(std::vector<Box2DLinkPtr>& links)
-{
-    for (auto& name_link_pair : _links) {
-        links.push_back(name_link_pair.second);
-    }
 }
 
 void Box2DObject::setPose(float x, float y, float theta)
@@ -2107,6 +2123,16 @@ void Box2DRobot::getLinks(std::vector<LinkConstPtr>& links) const
     _robot_object->getLinks(links);
 }
 
+void Box2DRobot::getBox2DLinks(std::vector<Box2DLinkPtr>& links)
+{
+    _robot_object->getBox2DLinks(links);
+}
+
+void Box2DRobot::getBox2DLinks(std::vector<Box2DLinkConstPtr>& links) const
+{
+    _robot_object->getBox2DLinks(links);
+}
+
 void Box2DRobot::getJoints(std::vector<JointPtr>& joints)
 {
     _robot_object->getJoints(joints);
@@ -2297,11 +2323,6 @@ BoundingBox Box2DRobot::getLocalAABB() const
 float Box2DRobot::getGroundFriction() const
 {
     return _robot_object->getGroundFriction();
-}
-
-void Box2DRobot::getBox2DLinks(std::vector<Box2DLinkPtr>& links)
-{
-    _robot_object->getBox2DLinks(links);
 }
 
 Box2DLinkPtr Box2DRobot::getBox2DBaseLink()
@@ -2790,8 +2811,8 @@ void Box2DCollisionChecker::invalidateCache()
 /////////////////////* Definition of Box2DAABBQuerier members */////////////////
 ////////////////////////////////////////////////////////////////////////////////
 struct Box2DAABBQuery : public b2QueryCallback {
-    std::unordered_set<std::string> object_hits;
-    std::unordered_set<std::string> link_hits;
+    // std::unordered_set<std::string> object_hits;
+    std::unordered_map<std::string, std::unordered_set<std::string>> hits;
     b2Transform query_transform;
     b2PolygonShape query_box;
     bool ReportFixture(b2Fixture* fixture)
@@ -2804,8 +2825,15 @@ struct Box2DAABBQuery : public b2QueryCallback {
         if (not b2TestOverlap(&query_box, 0, fixture->GetShape(), 0, query_transform, body->GetTransform())) {
             return true;
         }
-        object_hits.insert(user_data->object_name);
-        link_hits.insert(user_data->link_name);
+        // object_hits.insert(user_data->object_name);
+        auto iter = hits.find(user_data->object_name);
+        if (iter == hits.end()) {
+            // add new hit
+            hits.emplace(std::make_pair(user_data->object_name, std::unordered_set<std::string>({ user_data->link_name })));
+        } else {
+            // add link name to list of links for the object
+            iter->second.insert(user_data->link_name);
+        }
         return true;
     }
 };
@@ -3032,11 +3060,11 @@ void Box2DWorld::getObjects(const BoundingBox& aabb, std::vector<ObjectPtr>& obj
     aabb_query.query_box.SetAsBox(extents.x, extents.y);
     aabb_query.query_transform.Set(query_aabb.GetCenter(), 0.0f);
     _world->QueryAABB(&aabb_query, query_aabb);
-    for (auto& name : aabb_query.object_hits) {
-        if (isRobot(name) and exclude_robots) {
+    for (auto& item : aabb_query.hits) {
+        if (isRobot(item.first) and exclude_robots) {
             continue;
         }
-        auto object = getObject(name, exclude_robots);
+        auto object = getObject(item.first, exclude_robots);
         assert(object);
         objects.push_back(object);
     }
@@ -3057,13 +3085,37 @@ void Box2DWorld::getObjects(const BoundingBox& aabb, std::vector<ObjectConstPtr>
     aabb_query.query_box.SetAsBox(extents.x, extents.y);
     aabb_query.query_transform.Set(query_aabb.GetCenter(), 0.0f);
     _world->QueryAABB(&aabb_query, query_aabb);
-    for (auto& name : aabb_query.object_hits) {
-        if (isRobot(name) and exclude_robots) {
+    for (auto& item : aabb_query.hits) {
+        if (isRobot(item.first) and exclude_robots) {
             continue;
         }
-        auto object = getObjectConst(name, exclude_robots);
+        auto object = getObjectConst(item.first, exclude_robots);
         assert(object);
         objects.push_back(object);
+    }
+}
+
+void Box2DWorld::getBox2DLinks(const BoundingBox& aabb, std::vector<Box2DLinkConstPtr>& links) const
+{
+    Box2DWorldLock lock(getMutex());
+    b2AABB query_aabb;
+    query_aabb.lowerBound.x = getScale() * aabb.min_corner[0];
+    query_aabb.lowerBound.y = getScale() * aabb.min_corner[1];
+    query_aabb.upperBound.x = getScale() * aabb.max_corner[0];
+    query_aabb.upperBound.y = getScale() * aabb.max_corner[1];
+
+    Box2DAABBQuery aabb_query;
+    auto extents = query_aabb.GetExtents();
+    aabb_query.query_box.SetAsBox(extents.x, extents.y);
+    aabb_query.query_transform.Set(query_aabb.GetCenter(), 0.0f);
+    _world->QueryAABB(&aabb_query, query_aabb);
+    for (auto& item : aabb_query.hits) {
+        auto object = getObjectConst(item.first, false);
+        assert(object);
+        for (auto& link_name : item.second) {
+            auto link = std::dynamic_pointer_cast<const Box2DLink>(object->getConstLink(link_name));
+            links.push_back(link);
+        }
     }
 }
 
@@ -3155,34 +3207,63 @@ int Box2DWorld::getPositionSteps() const
 
 bool Box2DWorld::isPhysicallyFeasible()
 {
-    // auto logger = getLogger();
-    std::vector<Contact> contacts;
-    checkCollision(contacts);
-    for (auto& contact : contacts) {
-        auto link_a = std::dynamic_pointer_cast<Box2DLink>(contact.link_a.lock());
-        auto link_b = std::dynamic_pointer_cast<Box2DLink>(contact.link_b.lock());
-        std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false>> polygons_a;
-        std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false>> polygons_b;
-        link_a->getWorldBoostGeometry(polygons_a);
-        link_b->getWorldBoostGeometry(polygons_b);
-        for (auto& polygon_a : polygons_a) {
-            for (auto& polygon_b : polygons_b) {
-                std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false>> intersections;
-                bg::correct(polygon_a);
-                bg::correct(polygon_b);
-                bg::intersection(polygon_a, polygon_b, intersections);
-                for (auto& intersection : intersections) {
-                    float area = bg::area(intersection);
-                    //                    logger->logDebug(boost::format("Area is %f") % area, "[Box2DWorld::isPhysicallyFeasible]");
-                    if (area > MAX_ALLOWED_INTERSECTION_AREA) {
-                        // logger->logDebug("Current state is physically infeasible", "[Box2DWorld::isPhysicallyFeasible]");
-                        return false;
-                    }
-                }
-            }
+    // Box2D for some reason sometimes fails to detect that overlapping fixtures are in contact,
+    // therefore just run over all links here and check whether they overlap
+    for (auto obj_item : _objects) {
+        std::vector<Box2DLinkConstPtr> obj_links;
+        obj_item.second->getBox2DLinks(obj_links);
+        for (auto link : obj_links) {
+            std::vector<Box2DLinkConstPtr> other_links;
+            // query links that potentially overlap with this link
+            BoundingBox aabb = link->getBoundingBox();
+            getBox2DLinks(aabb, other_links);
+            if (checkPenetration(link, other_links))
+                return false;
+        }
+    }
+    // check robots
+    for (auto robot_item : _robots) {
+        auto object = robot_item.second->getBox2DObject();
+        std::vector<Box2DLinkConstPtr> obj_links;
+        object->getBox2DLinks(obj_links);
+        for (auto link : obj_links) {
+            std::vector<Box2DLinkConstPtr> other_links;
+            BoundingBox aabb = link->getBoundingBox();
+            getBox2DLinks(aabb, other_links);
+            if (checkPenetration(link, other_links))
+                return false;
         }
     }
     return true;
+    // OLD code that relies on Box2d's collision checks
+    // auto logger = getLogger();
+    // std::vector<Contact> contacts;
+    // checkCollision(contacts);
+    // for (auto& contact : contacts) {
+    //     auto link_a = std::dynamic_pointer_cast<Box2DLink>(contact.link_a.lock());
+    //     auto link_b = std::dynamic_pointer_cast<Box2DLink>(contact.link_b.lock());
+    //     std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false>> polygons_a;
+    //     std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false>> polygons_b;
+    //     link_a->getWorldBoostGeometry(polygons_a);
+    //     link_b->getWorldBoostGeometry(polygons_b);
+    //     for (auto& polygon_a : polygons_a) {
+    //         for (auto& polygon_b : polygons_b) {
+    //             std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false>> intersections;
+    //             bg::correct(polygon_a);
+    //             bg::correct(polygon_b);
+    //             bg::intersection(polygon_a, polygon_b, intersections);
+    //             for (auto& intersection : intersections) {
+    //                 float area = bg::area(intersection);
+    //                 //                    logger->logDebug(boost::format("Area is %f") % area, "[Box2DWorld::isPhysicallyFeasible]");
+    //                 if (area > MAX_ALLOWED_INTERSECTION_AREA) {
+    //                     // logger->logDebug("Current state is physically infeasible", "[Box2DWorld::isPhysicallyFeasible]");
+    //                     return false;
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+    // return true;
 }
 
 WorldViewer::ImageRendererPtr Box2DWorld::getImageRenderer()
@@ -3370,6 +3451,40 @@ LinkPtr Box2DWorld::getLink(b2Body* body)
     return nullptr;
 }
 ////////////////////////////// PRIVATE FUNCTIONS //////////////////////////////
+
+bool Box2DWorld::checkPenetration(Box2DLinkConstPtr link_a, const std::vector<Box2DLinkConstPtr>& others)
+{
+    std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false>> polygons_a;
+    if (!link_a->isEnabled())
+        return false;
+    link_a->getWorldBoostGeometry(polygons_a);
+    for (auto link_b : others) {
+        if (link_b == link_a or not link_b->isEnabled()) {
+            continue;
+        }
+        std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false>> polygons_b;
+        link_b->getWorldBoostGeometry(polygons_b);
+        _logger->logDebug(boost::format("Checking area between %s and %s") % link_a->getObject()->getName() % link_b->getObject()->getName(), "[Box2DWorld::isPhysicallyFeasible]");
+        for (auto& polygon_a : polygons_a) {
+            for (auto& polygon_b : polygons_b) {
+                std::vector<bg::model::polygon<bg::model::d2::point_xy<float>, false>> intersections;
+                bg::correct(polygon_a);
+                bg::correct(polygon_b);
+                bg::intersection(polygon_a, polygon_b, intersections);
+                for (auto& intersection : intersections) {
+                    float area = bg::area(intersection);
+                    _logger->logDebug(boost::format("Area is %f") % area, "[Box2DWorld::isPhysicallyFeasible]");
+                    if (area > MAX_ALLOWED_INTERSECTION_AREA) {
+                        // logger->logDebug("Current state is physically infeasible", "[Box2DWorld::isPhysicallyFeasible]");
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
 void Box2DWorld::eraseWorld()
 {
     if (!_world) { // if there is no world, there shouldn't be anything else

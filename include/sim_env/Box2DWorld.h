@@ -165,12 +165,19 @@ public:
     void setGroundFriction(float coeff) override;
     void getCenterOfMass(Eigen::Vector3f& com) const override;
     void getLocalCenterOfMass(Eigen::Vector3f& com) const override;
+    /**
+     *  Return axis aligned bounding box in global frame.
+     */
+    BoundingBox getBoundingBox() const override;
+    /**
+     *  Return axis aligned bounding box in local frame.
+     */
+    BoundingBox getLocalBoundingBox() const override;
     // Box2D specific
     Eigen::Vector2f getCenterOfMass() const;
     void getCenterOfMass(Eigen::Vector2f& com) const;
     float getInertia() const;
     Box2DWorldPtr getBox2DWorld() const;
-    BoundingBox getLocalBoundingBox() const;
     void setEnabled(bool b_enable) override;
     bool isEnabled() const override;
 
@@ -383,6 +390,8 @@ public:
     void getBallApproximation(std::vector<Ball>& balls) const override;
     void getLinks(std::vector<LinkPtr>& links) override;
     void getLinks(std::vector<LinkConstPtr>& links) const override;
+    void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
+    void getBox2DLinks(std::vector<Box2DLinkConstPtr>& links) const;
     LinkPtr getLink(const std::string& link_name) override;
     LinkConstPtr getConstLink(const std::string& link_name) const override;
     LinkPtr getBaseLink() override;
@@ -419,7 +428,6 @@ public:
     BoundingBox getLocalAABB() const override;
     float getGroundFriction() const override;
     virtual Box2DLinkPtr getBox2DBaseLink();
-    void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
     void setPose(float x, float y, float theta);
     void setPose(const Eigen::Vector3f& pose);
 
@@ -510,6 +518,7 @@ public:
     void getLinks(std::vector<LinkPtr>& links) override;
     void getLinks(std::vector<LinkConstPtr>& links) const override;
     void getBox2DLinks(std::vector<Box2DLinkPtr>& links);
+    void getBox2DLinks(std::vector<Box2DLinkConstPtr>& links) const;
     LinkPtr getLink(const std::string& link_name) override;
     LinkConstPtr getConstLink(const std::string& link_name) const override;
     LinkPtr getBaseLink() override;
@@ -742,6 +751,7 @@ public:
     void getObjects(const BoundingBox& aabb, std::vector<ObjectPtr>& objects, bool exclude_robots) override;
     void getObjects(const BoundingBox& aabb, std::vector<ObjectConstPtr>& objects,
         bool exclude_robots = true) const override;
+    void getBox2DLinks(const BoundingBox& aabb, std::vector<Box2DLinkConstPtr>& links) const;
 
     void stepPhysics(int steps) override;
     void stepPhysics(std::vector<Contact>& contacts, int steps = 1) override;
@@ -831,6 +841,8 @@ private:
     Eigen::Vector4f _world_bounds;
     WorldViewerPtr _world_viewer;
 
+    // check whether link_a penetrates any link from others (that is not link_a)
+    bool checkPenetration(Box2DLinkConstPtr link_a, const std::vector<Box2DLinkConstPtr>& others);
     void eraseWorld();
     void deleteGroundBody();
     void createWorld(const Box2DEnvironmentDescription& env_desc);
