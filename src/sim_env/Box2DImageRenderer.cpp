@@ -166,6 +166,46 @@ void sim_env::Box2DImageRenderer::setColor(const std::string& name, const Eigen:
     }
 }
 
+void sim_env::Box2DImageRenderer::removeDrawing(const WorldViewer::Handle& handle)
+{
+    { // spheres
+        auto iter = _spheres.find(handle.getID());
+        if (iter != _spheres.end()) {
+            _spheres.erase(iter);
+            return;
+        }
+    }
+    { // boxes
+        auto iter = _boxes.find(handle.getID());
+        if (iter != _boxes.end()) {
+            _boxes.erase(iter);
+            return;
+        }
+    }
+    { // lines
+        auto iter = _lines.find(handle.getID());
+        if (iter != _lines.end()) {
+            _lines.erase(iter);
+            return;
+        }
+    }
+    { // frames
+        auto iter = _frames.find(handle.getID());
+        if (iter != _frames.end()) {
+            _frames.erase(iter);
+            return;
+        }
+    }
+}
+
+void sim_env::Box2DImageRenderer::removeAllDrawings()
+{
+    _spheres.clear();
+    _lines.clear();
+    _boxes.clear();
+    _frames.clear();
+}
+
 void sim_env::Box2DImageRenderer::extendBounds(const Line& line)
 {
     float minx = std::min(line.start[0], line.end[0]);
@@ -250,10 +290,10 @@ void sim_env::Box2DImageRenderer::renderBox(cimg_library::CImg<unsigned char>& c
     min_corner = to_image_frame * min_corner;
     Eigen::Vector2f max_corner = box.pos + box.extent;
     max_corner = to_image_frame * max_corner;
-    if (box.solid) {
+    if (!box.solid) {
         // TODO figure out what pattern to use
         cimg.draw_rectangle((int)min_corner[0], cimg.height() - (int)min_corner[1], (int)max_corner[0],
-            cimg.height() - (int)max_corner[1], box.color, box.opacity, 0);
+            cimg.height() - (int)max_corner[1], box.color, box.opacity, 0xFFFFFFFF);
     } else {
         cimg.draw_rectangle((int)min_corner[0], cimg.height() - (int)min_corner[1], (int)max_corner[0],
             cimg.height() - (int)max_corner[1], box.color, box.opacity);

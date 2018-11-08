@@ -8,8 +8,8 @@
 #include <sim_env/Box2DWorld.h>
 // CImg
 #define cimg_display 0 // disable CImg GUI support
-// #define cimg_use_png 1 // enable png support
-// #define cimg_use_jpeg 1 // enable jpeg support
+#define cimg_use_png 1 // enable png support
+#define cimg_use_jpeg 1 // enable jpeg support
 #include <CImg.h>
 
 namespace sim_env {
@@ -87,6 +87,7 @@ public:
     /**
      *  Render the scene from the current camera view to an image and store this image under the given name.
      *  The underlying implementation guarantees that this method is thread-safe.
+     *  The image format is chosen based on the end of filename. png and jpeg are supported.
      *  @param filename - path + name of where to store the image. The image format may depend on the implementation.
      *  @param width - width in pixels of the image
      *  @param height - height in pixels
@@ -114,6 +115,17 @@ public:
      * @param visible - if true, show it, else hide. 
      */
     void setColor(const std::string& name, const Eigen::Vector4f& color) override;
+
+    /**
+     * Remove the drawing with the given handle.
+     * If there is no drawing for that handle, this is a no-op.
+     */
+    virtual void removeDrawing(const WorldViewer::Handle& handle) override;
+
+    /**
+     * Remove all drawings.
+     */
+    virtual void removeAllDrawings() override;
 
 protected:
     struct ObjectInfo {
