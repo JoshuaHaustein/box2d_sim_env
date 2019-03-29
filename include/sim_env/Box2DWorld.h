@@ -169,6 +169,8 @@ public:
     Eigen::Vector2f getCenterOfMass() const;
     void getCenterOfMass(Eigen::Vector2f& com) const;
     float getInertia() const;
+    // return the inertia w.r.t. to the center of mass
+    float getCOMInertia() const;
     Box2DWorldPtr getBox2DWorld() const;
     BoundingBox getLocalBoundingBox() const;
     void setEnabled(bool b_enable) override;
@@ -413,6 +415,7 @@ public:
     float getMass() const override;
     /**
          * Returns the moment of inertia of this object (given the current configuration).
+         * TODO specify frame
          * @return moment of inertia
          */
     float getInertia() const override;

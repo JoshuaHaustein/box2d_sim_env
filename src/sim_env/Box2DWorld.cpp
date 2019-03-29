@@ -458,6 +458,17 @@ float Box2DLink::getInertia() const
     return inv_scale * inv_scale * _body->GetInertia();
 }
 
+float Box2DLink::getCOMInertia() const
+{
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
+    float inv_scale = world->getInverseScale();
+    float inertia = _body->GetInertia(); // relative to reference frame
+    float com_dist = _body->GetLocalCenter().Length();
+    float com_inertia = inertia - getMass() * com_dist * com_dist;
+    return inv_scale * inv_scale * com_inertia;
+}
+
 void Box2DLink::getCenterOfMass(Eigen::Vector3f& com) const
 {
     Eigen::Vector2f com2;
@@ -1791,7 +1802,7 @@ float Box2DObject::getInertia() const
     for (auto& name_link_pair : _links) {
         Box2DLinkPtr link = name_link_pair.second;
         float distance = (link->getCenterOfMass() - com).norm();
-        inertia += link->getInertia() + distance * distance * link->getMass();
+        inertia += link->getCOMInertia() + distance * distance * link->getMass();
     }
     return inertia;
 }
@@ -2221,7 +2232,22 @@ void Box2DRobot::commandEfforts(const Eigen::VectorXf& target)
             }
             case 2: {
                 // torque
-                body->ApplyTorque(scale * scale * target[i], true); // torque is in Nm = kg * m / s^2 * m
+                float torque_com = scale * scale * target[i]; // torque is in Nm = kg * m / s^2 * m
+                // auto lcenter = body->GetLocalCenter();
+                // float com_r = lcenter.Length();
+                // if (com_r == 0.0f) {
+                body->ApplyTorque(torque_com, true);
+                // } else {
+                //     b2Vec2 force_dir(1.0f, 0.0f);
+                //     if (lcenter.x != 0.0f) {
+                //         force_dir.x = -lcenter.y / lcenter.x;
+                //         force_dir.y = 1.0f;
+                //         force_dir.Normalize();
+                //     }
+                //     // auto wcenter = body->GetWorldPoint(b2Vec);
+                //     auto force = torque_com / com_r * body->GetWorldVector(force_dir);
+                //     body->ApplyForce(force, body->GetPosition(), true);
+                // }
                 break;
             }
             default: {
