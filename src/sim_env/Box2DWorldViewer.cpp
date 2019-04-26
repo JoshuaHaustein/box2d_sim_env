@@ -256,11 +256,11 @@ sim_env::viewer::Box2DLinkView::Box2DLinkView(sim_env::Box2DLinkConstPtr link,
     _ball_color = QColor(255, 0, 0, 100);
     Box2DWorldPtr world = link->getBox2DWorld();
 
-    std::vector<std::vector<Eigen::Vector2f>> geometry;
-    link->getGeometry(geometry);
-    for (auto& polygon : geometry) {
+    std::vector<sim_env::Geometry> geometries;
+    link->getGeometries(geometries);
+    for (auto& geom : geometries) {
         QPolygonF qt_polygon;
-        for (auto& point : polygon) {
+        for (auto& point : geom.vertices) {
             qt_polygon.push_back(QPointF(point[0], point[1]));
         }
         _polygons.push_back(qt_polygon);

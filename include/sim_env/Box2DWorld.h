@@ -155,7 +155,13 @@ public:
     JointPtr getParentJoint() override;
     JointConstPtr getConstParentJoint() const override;
 
-    void getGeometry(std::vector<std::vector<Eigen::Vector2f>>& geometry) const;
+    /**
+      * Return the geometry of this link.
+      */
+    std::vector<Geometry> getGeometries() const override;
+    void getGeometries(std::vector<Geometry>& geoms) const override;
+
+    // void getGeometry(std::vector<std::vector<Eigen::Vector2f>>& geometry) const;
     void getBoostGeometry(std::vector<boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<float>, false>>& polygons) const;
     void getWorldBoostGeometry(std::vector<boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<float>, false>>& polygons) const;
     const std::vector<boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<float>, false>>& getBoostGeometry() const;

@@ -281,7 +281,14 @@ void Box2DLink::registerParentJoint(Box2DJointPtr joint)
     _parent_joint = joint;
 }
 
-void Box2DLink::getGeometry(std::vector<std::vector<Eigen::Vector2f>>& geometry) const
+std::vector<Geometry> Box2DLink::getGeometries() const
+{
+    std::vector<Geometry> geoms;
+    getGeometries(geoms);
+    return geoms;
+}
+
+void Box2DLink::getGeometries(std::vector<Geometry>& geoms) const
 {
     // TODO we could/should just read this from the boost polygons
     Box2DWorldPtr world = getBox2DWorld();
@@ -289,15 +296,16 @@ void Box2DLink::getGeometry(std::vector<std::vector<Eigen::Vector2f>>& geometry)
     b2Fixture* fixture = _body->GetFixtureList();
     while (fixture) {
         b2Shape* shape = fixture->GetShape();
-        std::vector<Eigen::Vector2f> polygon;
+        Geometry polygon;
+        polygon.is_polygon = true;
         if (shape->GetType() == b2Shape::Type::e_polygon) {
             b2PolygonShape* polygon_shape = static_cast<b2PolygonShape*>(shape);
             for (int32 v = 0; v < polygon_shape->GetVertexCount(); ++v) {
                 b2Vec2 point = polygon_shape->GetVertex(v) - _local_origin_offset;
-                Eigen::Vector2f eigen_point(world->getInverseScale() * point.x, world->getInverseScale() * point.y);
-                polygon.push_back(eigen_point);
+                Eigen::Vector3f eigen_point(world->getInverseScale() * point.x, world->getInverseScale() * point.y, 0.0f);
+                polygon.vertices.push_back(eigen_point);
             }
-            geometry.push_back(polygon);
+            geoms.push_back(polygon);
         } else {
             throw std::runtime_error("[sim_env::Box2DLink::getGeometry] Could not retrieve geometry. Box2D shape is not a polygon.");
         }
