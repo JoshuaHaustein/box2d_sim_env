@@ -63,7 +63,7 @@ Box2DLink::Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world,
     body_def.type = is_static ? b2_staticBody : b2_dynamicBody;
     body_def.userData = new Box2DBodyUserData(_name, _object_name);
     _body = box2d_world->CreateBody(&body_def);
-    // run over polygons and create Box2D shape definitions + compute area
+    // run over polygons and create Box2D shape definitions, compute area and union of all polygons
     float area = 0.0f;
     std::vector<b2PolygonShape> shape_defs;
     _local_aabb.min_corner[0] = std::numeric_limits<float>::max();
@@ -72,11 +72,14 @@ Box2DLink::Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world,
     _local_aabb.max_corner[1] = std::numeric_limits<float>::lowest();
     _local_aabb.min_corner[2] = 0.0f;
     _local_aabb.max_corner[2] = 0.0f;
+    typedef bg::model::polygon<bg::model::d2::point_xy<float>, false> BoostPolygon;
+    typedef bg::model::multi_polygon<BoostPolygon> MultiPolygon;
+    MultiPolygon link_polygon;
     for (auto& polygon : link_desc.polygons) {
         b2PolygonShape b2_shape; // shape type for box2d
         std::vector<b2Vec2> b2_polygon; // temporal buffer for vertices
         // boost polygon for area, 'false' template parameter stands for counter clockwise (box2d standard)
-        bg::model::polygon<bg::model::d2::point_xy<float>, false> boost_polygon;
+        BoostPolygon boost_polygon;
         assert(polygon.size() % 2 == 0);
         // run over this polygon
         for (unsigned int i = 0; i < polygon.size() / 2; ++i) {
@@ -90,6 +93,10 @@ Box2DLink::Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world,
         }
         bg::correct(boost_polygon); // ensures that the polygon fulfills all criteria required for a valid boost polygon
         _boost_polygons.push_back(boost_polygon);
+        // merge with global link geometry
+        MultiPolygon tmp_polygon;
+        boost::geometry::union_(boost_polygon, link_polygon, tmp_polygon);
+        link_polygon = tmp_polygon;
         // compute the area (scaled)
         area += world->getScale() * world->getScale() * bg::area(boost_polygon);
         // add the shape
@@ -97,6 +104,16 @@ Box2DLink::Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world,
         shape_defs.push_back(b2_shape);
     }
     assert(area > 0.0);
+    // run over merged polygon to extract global geometry
+    for (auto& polygon : link_polygon) {
+        _link_geometries.emplace_back(Geometry());
+        // extract hull of polygon
+        auto object_hull = bg::exterior_ring(polygon);
+        for (auto& point : object_hull) {
+            _link_geometries.back().vertices.push_back(Eigen::Vector3f(point.get<0>(), point.get<1>(), 0.0f));
+        }
+        _link_geometries.back().is_polygon = true;
+    }
     // Now that we have the area and all shapes, we can create fixtures
     for (b2PolygonShape& shape_def : shape_defs) {
         b2FixtureDef fixture_def;
@@ -290,7 +307,28 @@ std::vector<Geometry> Box2DLink::getGeometries() const
 
 void Box2DLink::getGeometries(std::vector<Geometry>& geoms) const
 {
-    // TODO we could/should just read this from the boost polygons
+    Box2DWorldPtr world = getBox2DWorld();
+    Box2DWorldLock lock(world->getMutex());
+    Eigen::Vector3f offset(world->getInverseScale() * _local_origin_offset(0),
+        world->getInverseScale() * _local_origin_offset(1), 0.0f);
+    for (const auto& geom : _link_geometries) {
+        geoms.emplace_back(Geometry());
+        geoms.back().is_polygon = true;
+        for (const auto& point : geom.vertices) {
+            geoms.back().vertices.emplace_back(point - offset);
+        }
+    }
+}
+
+std::vector<Geometry> Box2DLink::getFixtureGeometries() const
+{
+    std::vector<Geometry> geoms;
+    getFixtureGeometries(geoms);
+    return geoms;
+}
+
+void Box2DLink::getFixtureGeometries(std::vector<Geometry>& geoms) const
+{
     Box2DWorldPtr world = getBox2DWorld();
     Box2DWorldLock lock(world->getMutex());
     b2Fixture* fixture = _body->GetFixtureList();

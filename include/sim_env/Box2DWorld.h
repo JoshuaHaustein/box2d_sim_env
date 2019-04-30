@@ -161,6 +161,8 @@ public:
     std::vector<Geometry> getGeometries() const override;
     void getGeometries(std::vector<Geometry>& geoms) const override;
 
+    std::vector<Geometry> getFixtureGeometries() const;
+    void getFixtureGeometries(std::vector<Geometry>& geoms) const;
     // void getGeometry(std::vector<std::vector<Eigen::Vector2f>>& geometry) const;
     void getBoostGeometry(std::vector<boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<float>, false>>& polygons) const;
     void getWorldBoostGeometry(std::vector<boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<float>, false>>& polygons) const;
@@ -227,6 +229,7 @@ private:
     std::vector<Ball> _balls;
     Box2DJointWeakPtr _parent_joint;
     BoundingBox _local_aabb;
+    std::vector<Geometry> _link_geometries;
     std::vector<boost::geometry::model::polygon<boost::geometry::model::d2::point_xy<float>, false>> _boost_polygons;
     float _ground_friction;
     float _friction_ratio;

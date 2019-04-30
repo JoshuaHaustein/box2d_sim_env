@@ -324,7 +324,7 @@ void sim_env::Box2DImageRenderer::renderObject(cimg_library::CImg<unsigned char>
         to_world_frame = Eigen::Translation<float, 2>(lpos) * Eigen::Rotation2Df(pose[2]);
         // now get geometry for this link
         std::vector<sim_env::Geometry> local_geometries;
-        link->getGeometries(local_geometries);
+        link->getFixtureGeometries(local_geometries);
         // draw each polygon
         for (auto& geom : local_geometries) {
             cimg_library::CImg<int> cimg_polygon(geom.vertices.size(), 2);

@@ -257,7 +257,7 @@ sim_env::viewer::Box2DLinkView::Box2DLinkView(sim_env::Box2DLinkConstPtr link,
     Box2DWorldPtr world = link->getBox2DWorld();
 
     std::vector<sim_env::Geometry> geometries;
-    link->getGeometries(geometries);
+    link->getFixtureGeometries(geometries);
     for (auto& geom : geometries) {
         QPolygonF qt_polygon;
         for (auto& point : geom.vertices) {
