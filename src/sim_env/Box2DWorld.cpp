@@ -338,8 +338,8 @@ void Box2DLink::getFixtureGeometries(std::vector<Geometry>& geoms) const
         polygon.is_polygon = true;
         if (shape->GetType() == b2Shape::Type::e_polygon) {
             b2PolygonShape* polygon_shape = static_cast<b2PolygonShape*>(shape);
-            for (int32 v = 0; v < polygon_shape->GetVertexCount(); ++v) {
-                b2Vec2 point = polygon_shape->GetVertex(v) - _local_origin_offset;
+            for (int32 v = 0; v < polygon_shape->m_count; ++v) {
+                b2Vec2 point = polygon_shape->m_vertices[v] - _local_origin_offset;
                 Eigen::Vector3f eigen_point(world->getInverseScale() * point.x, world->getInverseScale() * point.y, 0.0f);
                 polygon.vertices.push_back(eigen_point);
             }
@@ -2822,10 +2822,11 @@ void Box2DCollisionChecker::updateContactCache()
     //                              log_prefix);
     Box2DWorldLock lock(world->getMutex());
     _body_contact_maps.clear();
-    world->saveState();
-    world->setToRest();
-    world->stepPhysics(2, false, false); // for some reason we need to propagate twice
+    // world->saveState();
+    // world->setToRest();
+    // world->stepPhysics(2, false, false); // for some reason we need to propagate twice
     auto box2d_world = world->getRawBox2DWorld();
+    box2d_world->UpdateContacts();
     auto contact = box2d_world->GetContactList();
     while (contact) {
         if (contact->IsTouching() && contact->IsEnabled()) {
@@ -2836,7 +2837,7 @@ void Box2DCollisionChecker::updateContactCache()
         }
         contact = contact->GetNext();
     }
-    world->restoreState();
+    // world->restoreState();
     _cache_invalid = false;
 }
 
