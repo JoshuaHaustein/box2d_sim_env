@@ -124,6 +124,10 @@ Box2DLink::Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world,
         fixture_def.shape = &shape_def;
         _body->CreateFixture(&fixture_def);
     }
+    // save friction coefficients
+    _contact_friction = link_desc.contact_friction;
+    _ground_torque_integral = link_desc.ground_torque_integral;
+    _ground_friction = link_desc.ground_friction;
     // Finally create a friction joint between this link and the ground plane
     // TODO we probably don't want friction between the ground and fingers -> make friction optional
     float gravity = world->getGravity();
@@ -133,10 +137,13 @@ Box2DLink::Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world,
     friction_joint_def.bodyA = world->getGroundBody();
     friction_joint_def.bodyB = _body;
     friction_joint_def.collideConnected = false;
-    friction_joint_def.maxForce = link_desc.trans_friction * _body->GetMass() * gravity;
-    friction_joint_def.maxTorque = link_desc.rot_friction * _body->GetMass() * gravity;
-    _ground_friction = link_desc.trans_friction;
-    _friction_ratio = link_desc.rot_friction / link_desc.trans_friction;
+    // the maximal friction force is = mu * m * g, where mu is the friction coefficient
+    friction_joint_def.maxForce = _ground_friction * gravity * _body->GetMass();
+    // the maximal torque is t = mu * \int_A ||x|| p(x) dA, where mu is the friction coefficient,
+    // A the support region, p(x) the pressure distribution, dA the differential element and x the position
+    // of dA w.r.t center of mass (rotation). Since p(x) is unknown, we take it as a tunable parameter.
+    // Due to our scaling, we need to scale this value by scale^2 (once for gravity constant, and once for distance)
+    friction_joint_def.maxTorque = _ground_friction * _ground_torque_integral * world->getScale() * world->getScale();
     _friction_joint = box2d_world->CreateJoint(&friction_joint_def);
 }
 
@@ -251,11 +258,6 @@ Box2DWorldPtr Box2DLink::getBox2DWorld() const
 BoundingBox Box2DLink::getLocalBoundingBox() const
 {
     return _local_aabb;
-}
-
-float Box2DLink::getGroundFriction() const
-{
-    return _ground_friction;
 }
 
 WorldPtr Box2DLink::getWorld() const
@@ -483,17 +485,60 @@ void Box2DLink::setMass(float mass)
     data.mass = mass;
     data.I = data.I * mass_ratio;
     _body->SetMassData(&data);
+    updateFrictionJoint();
 }
 
-void Box2DLink::setGroundFriction(float coeff)
+float Box2DLink::getGroundFrictionCoefficient() const
+{
+    return _ground_friction;
+}
+
+void Box2DLink::setGroundFrictionCoefficient(float mu)
+{
+    _ground_friction = mu;
+    updateFrictionJoint();
+}
+
+float Box2DLink::getGroundFrictionLimitTorque() const
+{
+    return _ground_friction * _ground_torque_integral;
+}
+
+float Box2DLink::getGroundFrictionLimitForce() const
+{
+    return _ground_friction * getMass() * Box2DWorld::GRAVITY;
+}
+
+void Box2DLink::setGroundFrictionTorqueIntegral(float val)
+{
+    _ground_torque_integral = val;
+    updateFrictionJoint();
+}
+
+void Box2DLink::updateFrictionJoint()
 {
     Box2DWorldPtr world = getBox2DWorld();
     Box2DWorldLock lock(world->getMutex());
     auto friction_joint = dynamic_cast<b2FrictionJoint*>(_friction_joint);
     float gravity = world->getGravity();
-    friction_joint->SetMaxForce(coeff * _body->GetMass() * gravity);
-    friction_joint->SetMaxTorque(_friction_ratio * coeff * _body->GetMass() * gravity);
-    _ground_friction = coeff;
+    friction_joint->SetMaxForce(_ground_friction * getMass() * gravity);
+    friction_joint->SetMaxTorque(_ground_friction * _ground_torque_integral * world->getScale() * world->getScale());
+}
+
+float Box2DLink::getContactFriction() const
+{
+    return _contact_friction;
+}
+
+void Box2DLink::setContactFriction(float mu)
+{
+    _contact_friction = mu;
+    // TODO invalidate existing contacts somehow?
+    b2Fixture* fixture = _body->GetFixtureList();
+    while (fixture) {
+        fixture->SetFriction(mu);
+        fixture = fixture->GetNext();
+    }
 }
 
 float Box2DLink::getInertia() const
@@ -1863,11 +1908,6 @@ BoundingBox Box2DObject::getLocalAABB() const
     return _local_bounding_box;
 }
 
-float Box2DObject::getGroundFriction() const
-{
-    return _base_link->getGroundFriction();
-}
-
 void Box2DObject::getBox2DLinks(std::vector<Box2DLinkPtr>& links)
 {
     for (auto& name_link_pair : _links) {
@@ -2364,11 +2404,6 @@ float Box2DRobot::getInertia() const
 BoundingBox Box2DRobot::getLocalAABB() const
 {
     return _robot_object->getLocalAABB();
-}
-
-float Box2DRobot::getGroundFriction() const
-{
-    return _robot_object->getGroundFriction();
 }
 
 void Box2DRobot::getBox2DLinks(std::vector<Box2DLinkPtr>& links)
