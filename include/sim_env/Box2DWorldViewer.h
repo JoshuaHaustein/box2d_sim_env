@@ -62,7 +62,7 @@ namespace viewer {
         ~Box2DObjectView();
         QRectF boundingRect() const override;
         void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget) override;
-        void setColor(float r, float g, float b);
+        void setColor(float r, float g, float b, float a = 1.0f);
         void resetColor();
 
     protected:
@@ -84,7 +84,7 @@ namespace viewer {
         ~Box2DRobotView();
         QRectF boundingRect() const override;
         void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget) override;
-        void setColor(float r, float g, float b);
+        void setColor(float r, float g, float b, float a = 1.0f);
         void resetColor();
 
     protected:
@@ -153,7 +153,7 @@ namespace viewer {
         bool renderImage(const std::string& filename, unsigned int width, unsigned int height, bool include_drawings, const QRectF& render_region);
         void removeDrawing(const WorldViewer::Handle& handle);
         void removeAllDrawings();
-        void setColor(const std::string& name, float r, float g, float b);
+        void setColor(const std::string& name, float r, float g, float b, float a = 1.0f);
         void setColor(const std::string& name, const Eigen::Vector4f& color);
         void resetColor(const std::string& name);
         void setObjectVisible(const std::string& name, bool visible);

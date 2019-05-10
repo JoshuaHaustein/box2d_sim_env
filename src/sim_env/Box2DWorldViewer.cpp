@@ -83,10 +83,11 @@ void sim_env::viewer::Box2DObjectView::paint(QPainter* painter, const QStyleOpti
     }
 }
 
-void sim_env::viewer::Box2DObjectView::setColor(float r, float g, float b)
+void sim_env::viewer::Box2DObjectView::setColor(float r, float g, float b, float a)
 {
     auto color = QColor();
     color.setRgbF(r, g, b);
+    color.setAlphaF(a);
     for (auto* link : _link_views) {
         link->setColors(color, QColor(0, 0, 0), QColor(255, 0, 0, 100));
     }
@@ -161,10 +162,11 @@ sim_env::viewer::Box2DRobotView::Box2DRobotView(sim_env::Box2DRobotPtr robot, Bo
 
 sim_env::viewer::Box2DRobotView::~Box2DRobotView() = default;
 
-void sim_env::viewer::Box2DRobotView::setColor(float r, float g, float b)
+void sim_env::viewer::Box2DRobotView::setColor(float r, float g, float b, float a)
 {
     auto color = QColor();
     color.setRgbF(r, g, b);
+    color.setAlphaF(a);
     for (auto* link : _link_views) {
         link->setColors(color, QColor(0, 0, 0), QColor(255, 0, 0, 100));
     }
@@ -307,10 +309,9 @@ void sim_env::viewer::Box2DLinkView::paint(QPainter* painter, const QStyleOption
     const QBrush original_brush = painter->brush();
     const QPen original_pen = painter->pen();
     // set it semi-transparent in case its inactive
-    if (link->isEnabled()) {
-        _fill_color.setAlphaF(1.0f);
-        _border_color.setAlphaF(1.0f);
-    } else {
+    qreal fill_alpha = _fill_color.alphaF();
+    qreal border_alpha = _fill_color.alphaF();
+    if (!link->isEnabled()) {
         _fill_color.setAlphaF(0.2f);
         _border_color.setAlphaF(0.2f);
     }
@@ -336,6 +337,9 @@ void sim_env::viewer::Box2DLinkView::paint(QPainter* painter, const QStyleOption
     }
     painter->setBrush(original_brush);
     painter->setPen(original_pen);
+    // restore alpha
+    _fill_color.setAlphaF(fill_alpha);
+    _border_color.setAlphaF(border_alpha);
 }
 
 //////////////////////////////////////// Box2DJointView ////////////////////////////////////////
@@ -641,18 +645,18 @@ void sim_env::viewer::Box2DScene::repopulate()
 void sim_env::viewer::Box2DScene::setColor(const std::string& name, const Eigen::Vector4f& color)
 {
     // TODO should we support alpha values?
-    setColor(name, color[0], color[1], color[2]);
+    setColor(name, color[0], color[1], color[2], color[3]);
 }
 
-void sim_env::viewer::Box2DScene::setColor(const std::string& name, float r, float g, float b)
+void sim_env::viewer::Box2DScene::setColor(const std::string& name, float r, float g, float b, float a)
 {
     auto iter = _object_views.find(name);
     if (iter != _object_views.end()) {
-        iter->second->setColor(r, g, b);
+        iter->second->setColor(r, g, b, a);
     } else {
         auto iter2 = _robot_views.find(name);
         if (iter2 != _robot_views.end()) {
-            iter2->second->setColor(r, g, b);
+            iter2->second->setColor(r, g, b, a);
         } else {
             auto logger = getLogger();
             logger->logErr("Could not set color for object " + name + " because it was not found",
@@ -1571,7 +1575,7 @@ void sim_env::viewer::Box2DWorldView::scaleView(double scale_factor)
     // this is from a qt example
     qreal factor = transform().scale(scale_factor, scale_factor).mapRect(QRectF(0, 0, 1, 1)).width();
     // TODO this is the width of a unit cube when zoomed. See whether these numbers should be dependent on sth
-    if (factor < 0.7 || factor > 600) {
+    if (factor < 0.7 || factor > 2000) {
         return;
     }
     scale(scale_factor, scale_factor);
