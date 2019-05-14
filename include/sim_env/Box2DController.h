@@ -17,6 +17,8 @@ class Box2DRobotVelocityController : public RobotVelocityController {
 public:
     Box2DRobotVelocityController(Box2DRobotPtr robot);
     ~Box2DRobotVelocityController();
+    void setPositionProjectionFn(PositionProjectionFn pos_constraint) override;
+    void setVelocityProjectionFn(VelocityProjectionFn vel_constraint) override;
     unsigned int getTargetDimension() const override;
     void setTargetVelocity(const Eigen::VectorXf& velocity) override;
     bool control(const Eigen::VectorXf& positions,
@@ -42,6 +44,8 @@ protected:
         Eigen::Matrix2f& inertia_matrix,
         Eigen::Matrix2f& coriolis_matrix) const;
     LoggerPtr getLogger() const;
+    PositionProjectionFn _pos_proj_fn;
+    VelocityProjectionFn _vel_proj_fn;
 
 private:
     Box2DRobotWeakPtr _box2d_robot;

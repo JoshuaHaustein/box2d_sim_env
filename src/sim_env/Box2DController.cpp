@@ -17,6 +17,22 @@ Box2DRobotVelocityController::~Box2DRobotVelocityController()
 {
 }
 
+void Box2DRobotVelocityController::setPositionProjectionFn(PositionProjectionFn pos_constraint)
+{
+    auto robot = _box2d_robot.lock();
+    assert(robot);
+    auto world = robot->getWorld();
+    auto logger = world->getLogger();
+    logger->logErr("Position projection not supported for Box2DVelocityController."
+                   "Use a position controller to constrain robot positions",
+        "[Box2DRobotVelocityController::setPositionProjectionFn]");
+}
+
+void Box2DRobotVelocityController::setVelocityProjectionFn(VelocityProjectionFn vel_constraint)
+{
+    _vel_proj_fn = vel_constraint;
+}
+
 unsigned int Box2DRobotVelocityController::getTargetDimension() const
 {
     Box2DRobotPtr robot = lockRobot();
@@ -67,6 +83,11 @@ bool Box2DRobotVelocityController::control(const Eigen::VectorXf& positions,
             prefix);
         return false;
     }
+    Eigen::VectorXf target_velocity(_target_velocity);
+    if (_vel_proj_fn) {
+        _vel_proj_fn(target_velocity, robot);
+    }
+
     Eigen::VectorXi active_dofs = box2d_robot->getActiveDOFs();
     Eigen::MatrixX2f acceleration_limits = box2d_robot->getDOFAccelerationLimits();
     output.resize(active_dofs.size());

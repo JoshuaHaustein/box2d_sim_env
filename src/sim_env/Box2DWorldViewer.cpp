@@ -327,6 +327,20 @@ void sim_env::viewer::Box2DLinkView::paint(QPainter* painter, const QStyleOption
     for (auto& polygon : _polygons) {
         painter->drawPolygon(polygon);
     }
+    // draw velocity arrow, if selected
+    if (parentItem()->isSelected()) {
+        Eigen::Vector3f vel;
+        link->getVelocityVector(vel);
+        // float rot_vel = vel[2];
+        if (vel.head(2).norm() > 0.0f) {
+            vel[2] = 0.0f;
+            vel = world_link_transform.rotation().transpose() * vel;
+            QPointF start(0.0f, 0.0f);
+            QPointF end(vel[0], vel[1]);
+            painter->drawLine(start, end);
+            // logger->logDebug(boost::format("Velocity is %1%, %2%") % vel[0] % vel[1], "bla");
+        }
+    }
     // finally, if the object is selected, also draw ball approximation if available
     if (parentItem()->isSelected() and not _balls.empty()) {
         my_brush.setColor(_ball_color);
