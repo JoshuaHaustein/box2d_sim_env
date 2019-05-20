@@ -1336,8 +1336,11 @@ Box2DObject::Box2DObject(const Box2DObjectDescription& obj_desc, Box2DWorldPtr w
         _y_dof_info.acceleration_limits[0] = std::numeric_limits<float>::lowest();
         _y_dof_info.acceleration_limits[1] = std::numeric_limits<float>::max();
         _theta_dof_info.dof_index = 2;
-        _theta_dof_info.position_limits[0] = std::numeric_limits<float>::lowest();
-        _theta_dof_info.position_limits[1] = std::numeric_limits<float>::max();
+        // _theta_dof_info.position_limits[0] = std::numeric_limits<float>::lowest();
+        // _theta_dof_info.position_limits[1] = std::numeric_limits<float>::max();
+        _theta_dof_info.cyclic = true;
+        _theta_dof_info.position_limits[0] = -M_PI;
+        _theta_dof_info.position_limits[1] = M_PI;
         _theta_dof_info.velocity_limits[0] = std::numeric_limits<float>::lowest();
         _theta_dof_info.velocity_limits[1] = std::numeric_limits<float>::max();
         _theta_dof_info.acceleration_limits[0] = std::numeric_limits<float>::lowest();
