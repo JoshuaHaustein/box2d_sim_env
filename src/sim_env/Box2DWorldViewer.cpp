@@ -1209,7 +1209,12 @@ void sim_env::viewer::Box2DControllerView::setCurrentObject(sim_env::ObjectWeakP
         // ensure we have a position controller for this robot
         auto iter_postion = _position_controllers.find(robot->getName());
         if (iter_postion == _position_controllers.end()) {
-            _current_position_controller = std::make_shared<sim_env::RobotPositionController>(robot, _current_velocity_controller);
+            // create an SE2 controller if the robot is holonomic and has no other DOFs, else create a standard position controller
+            if (robot->getNumBaseDOFs() == 3 and robot->getNumDOFs() == 3) {
+                _current_position_controller = std::make_shared<sim_env::SE2RobotPositionController>(robot, _current_velocity_controller);
+            } else {
+                _current_position_controller = std::make_shared<sim_env::RobotPositionController>(robot, _current_velocity_controller);
+            }
             _position_controllers[robot->getName()] = _current_position_controller;
         } else {
             _current_position_controller = iter_postion->second;
@@ -1379,7 +1384,7 @@ void sim_env::viewer::Box2DControllerView::setController()
         using namespace std::placeholders;
         if (_position_button->isChecked()) {
             // set position controller
-            sim_env::Robot::ControlCallback callback = std::bind(&RobotPositionController::control,
+            sim_env::Robot::ControlCallback callback = std::bind(&RobotController::control,
                 _current_position_controller,
                 _1, _2, _3, _4, _5);
             robot->getWorld()->getLogger()->logDebug("Setting position controller",
@@ -1471,7 +1476,7 @@ void sim_env::viewer::Box2DControllerView::updateTarget()
     if (_velocity_button->isChecked()) {
         _current_velocity_controller->setTargetVelocity(target);
     } else {
-        _current_position_controller->setTargetPosition(target);
+        _current_position_controller->setTarget(target);
     }
 }
 
