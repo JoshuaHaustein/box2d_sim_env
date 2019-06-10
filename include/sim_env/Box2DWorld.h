@@ -173,6 +173,7 @@ public:
     float getGroundFrictionLimitTorque() const override;
     float getGroundFrictionLimitForce() const override;
     void setGroundFrictionTorqueIntegral(float val) override;
+    float getGroundFrictionTorqueIntegral() const override;
     float getContactFriction() const override;
     void setContactFriction(float coeff) override;
     void setMass(float mass) override;

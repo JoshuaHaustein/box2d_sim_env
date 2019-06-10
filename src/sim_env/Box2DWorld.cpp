@@ -141,7 +141,7 @@ Box2DLink::Box2DLink(const Box2DLinkDescription& link_desc, Box2DWorldPtr world,
     friction_joint_def.maxForce = _ground_friction * gravity * _body->GetMass();
     // the maximal torque is t = mu * \int_A ||x|| p(x) dA, where mu is the friction coefficient,
     // A the support region, p(x) the pressure distribution, dA the differential element and x the position
-    // of dA w.r.t center of mass (rotation). Since p(x) is unknown, we take it as a tunable parameter.
+    // of dA w.r.t center of mass (rotation). Since p(x) is unknown, we take the whole integral as a tunable parameter.
     // Due to our scaling, we need to scale this value by scale^2 (once for gravity constant, and once for distance)
     friction_joint_def.maxTorque = _ground_friction * _ground_torque_integral * world->getScale() * world->getScale();
     _friction_joint = box2d_world->CreateJoint(&friction_joint_def);
@@ -513,6 +513,11 @@ void Box2DLink::setGroundFrictionTorqueIntegral(float val)
 {
     _ground_torque_integral = val;
     updateFrictionJoint();
+}
+
+float Box2DLink::getGroundFrictionTorqueIntegral() const
+{
+    return _ground_torque_integral;
 }
 
 void Box2DLink::updateFrictionJoint()
