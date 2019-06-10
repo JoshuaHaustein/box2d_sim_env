@@ -404,6 +404,7 @@ public:
     LinkPtr getLink(const std::string& link_name) override;
     LinkConstPtr getConstLink(const std::string& link_name) const override;
     LinkPtr getBaseLink() override;
+    LinkConstPtr getConstBaseLink() const override;
 
     void getJoints(std::vector<JointPtr>& joints) override;
     void getBox2DJoints(std::vector<Box2DJointPtr>& joints);
@@ -532,6 +533,7 @@ public:
     LinkPtr getLink(const std::string& link_name) override;
     LinkConstPtr getConstLink(const std::string& link_name) const override;
     LinkPtr getBaseLink() override;
+    LinkConstPtr getConstBaseLink() const override;
     Box2DLinkPtr getBox2DBaseLink();
     // joints
     void getJoints(std::vector<JointPtr>& joints) override;

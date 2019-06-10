@@ -1827,6 +1827,11 @@ LinkPtr Box2DObject::getBaseLink()
     return _base_link;
 }
 
+LinkConstPtr Box2DObject::getConstBaseLink() const
+{
+    return _base_link;
+}
+
 Box2DLinkPtr Box2DObject::getBox2DBaseLink()
 {
     return _base_link;
@@ -2250,6 +2255,11 @@ JointConstPtr Box2DRobot::getConstJoint(const std::string& joint_name) const
 LinkPtr Box2DRobot::getBaseLink()
 {
     return _robot_object->getBaseLink();
+}
+
+LinkConstPtr Box2DRobot::getConstBaseLink() const
+{
+    return _robot_object->getConstBaseLink();
 }
 
 unsigned int Box2DRobot::getNumDOFs() const
